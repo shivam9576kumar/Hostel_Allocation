@@ -1,5 +1,12 @@
 node_modules
 .env
-pdfs/*.pdf
-uploads/*
+pdfs/
+uploads/
+backend/uploads/
+backend/pdfs/
+*.sqlite
+dist/
+frontend/dist/
 npm-debug.log
+
+

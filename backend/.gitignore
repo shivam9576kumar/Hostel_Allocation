@@ -1,5 +1,0 @@
-node_modules
-.env
-pdfs/*.pdf
-uploads/*
-npm-debug.log
