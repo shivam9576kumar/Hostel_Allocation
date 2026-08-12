@@ -96,3 +96,33 @@ CREATE INDEX IF NOT EXISTS idx_rooms_pairing_code ON rooms(pairing_code);
 -- Unique Index on rooms (floor_id, room_number)
 CREATE UNIQUE INDEX IF NOT EXISTS idx_rooms_floor_room ON rooms(floor_id, room_number);
 
+-- Swap Requests Table
+CREATE TABLE IF NOT EXISTS swap_requests (
+    id SERIAL PRIMARY KEY,
+    initiator_roll VARCHAR(20) REFERENCES students(roll_number) ON DELETE CASCADE,
+    source_room_id INTEGER REFERENCES rooms(room_id) ON DELETE CASCADE,
+    target_room_id INTEGER REFERENCES rooms(room_id) ON DELETE CASCADE,
+    target_student_roll VARCHAR(20) NULL REFERENCES students(roll_number) ON DELETE CASCADE,
+    swap_type VARCHAR(20) DEFAULT 'full',
+    status VARCHAR(20) DEFAULT 'Pending',
+    consents JSONB DEFAULT '{}',
+    old_pdf_paths JSONB DEFAULT '{}',
+    new_pdf_paths JSONB DEFAULT '{}',
+    expires_at TIMESTAMP NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- PDF History Table
+CREATE TABLE IF NOT EXISTS pdf_history (
+    id SERIAL PRIMARY KEY,
+    student_roll VARCHAR(20) REFERENCES students(roll_number) ON DELETE CASCADE,
+    room_id INTEGER REFERENCES rooms(room_id) ON DELETE CASCADE,
+    pdf_path VARCHAR(255) NOT NULL,
+    version INTEGER DEFAULT 1,
+    is_swap BOOLEAN DEFAULT FALSE,
+    is_current BOOLEAN DEFAULT TRUE,
+    generated_at TIMESTAMP DEFAULT NOW()
+);
+
+

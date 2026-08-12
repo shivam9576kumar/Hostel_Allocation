@@ -5,7 +5,9 @@ import BlockManager from './BlockManager';
 import FloorManager from './FloorManager';
 import RoomManager from './RoomManager';
 import StudentUpload from './StudentUpload';
-import { Building2, Layers, Grid, DoorClosed, Upload, LogOut, ShieldCheck, User } from 'lucide-react';
+import AdminSwapToggle from './AdminSwapToggle';
+import AdminSwapRequests from './AdminSwapRequests';
+import { Building2, Layers, Grid, DoorClosed, Upload, LogOut, ShieldCheck, ArrowLeftRight } from 'lucide-react';
 
 const AdminDashboard = () => {
   const { user, logout } = useAuth();
@@ -16,7 +18,8 @@ const AdminDashboard = () => {
     { id: 'blocks', label: 'Blocks', icon: Layers },
     { id: 'floors', label: 'Floors', icon: Grid },
     { id: 'rooms', label: 'Rooms Grid', icon: DoorClosed },
-    { id: 'students', label: 'Student Data Upload', icon: Upload }
+    { id: 'students', label: 'Student Data Upload', icon: Upload },
+    { id: 'swaps', label: 'Room Swap Control', icon: ArrowLeftRight }
   ];
 
   return (
@@ -81,6 +84,12 @@ const AdminDashboard = () => {
         {activeTab === 'floors' && <FloorManager />}
         {activeTab === 'rooms' && <RoomManager />}
         {activeTab === 'students' && <StudentUpload />}
+        {activeTab === 'swaps' && (
+          <div className="space-y-8">
+            <AdminSwapToggle />
+            <AdminSwapRequests />
+          </div>
+        )}
 
       </main>
     </div>

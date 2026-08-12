@@ -240,6 +240,117 @@ const Booking = sequelize.define('Booking', {
   tableName: 'bookings'
 });
 
+const SwapRequest = sequelize.define('SwapRequest', {
+  id: {
+    type: DataTypes.INTEGER,
+    primaryKey: true,
+    autoIncrement: true
+  },
+  initiator_roll: {
+    type: DataTypes.STRING(20),
+    allowNull: false
+  },
+  source_room_id: {
+    type: DataTypes.INTEGER,
+    allowNull: false
+  },
+  target_room_id: {
+    type: DataTypes.INTEGER,
+    allowNull: false
+  },
+  target_student_roll: {
+    type: DataTypes.STRING(20),
+    allowNull: true
+  },
+  swap_type: {
+    type: DataTypes.STRING(20),
+    defaultValue: 'full'
+  },
+  status: {
+    type: DataTypes.STRING(20),
+    defaultValue: 'Pending'
+  },
+  consents: {
+    type: DataTypes.JSON,
+    defaultValue: {},
+    get() {
+      const raw = this.getDataValue('consents');
+      if (typeof raw === 'string') {
+        try { return JSON.parse(raw); } catch { return {}; }
+      }
+      return raw || {};
+    },
+    set(value) {
+      if (typeof value === 'object' && value !== null) {
+        this.setDataValue('consents', JSON.stringify(value));
+      } else {
+        this.setDataValue('consents', value);
+      }
+    }
+  },
+  old_pdf_paths: {
+    type: DataTypes.JSON,
+    defaultValue: {}
+  },
+  new_pdf_paths: {
+    type: DataTypes.JSON,
+    defaultValue: {}
+  },
+  expires_at: {
+    type: DataTypes.DATE,
+    allowNull: false
+  },
+  created_at: {
+    type: DataTypes.DATE,
+    defaultValue: DataTypes.NOW
+  },
+  updated_at: {
+    type: DataTypes.DATE,
+    defaultValue: DataTypes.NOW
+  }
+}, {
+  tableName: 'swap_requests'
+});
+
+const PDFHistory = sequelize.define('PDFHistory', {
+  id: {
+    type: DataTypes.INTEGER,
+    primaryKey: true,
+    autoIncrement: true
+  },
+  student_roll: {
+    type: DataTypes.STRING(20),
+    allowNull: false
+  },
+  room_id: {
+    type: DataTypes.INTEGER,
+    allowNull: false
+  },
+  pdf_path: {
+    type: DataTypes.STRING(255),
+    allowNull: false
+  },
+  version: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    defaultValue: 1
+  },
+  is_swap: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false
+  },
+  is_current: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: true
+  },
+  generated_at: {
+    type: DataTypes.DATE,
+    defaultValue: DataTypes.NOW
+  }
+}, {
+  tableName: 'pdf_history'
+});
+
 // Define Associations
 Hostel.hasMany(Block, { foreignKey: 'hostel_id', onDelete: 'CASCADE' });
 Block.belongsTo(Hostel, { foreignKey: 'hostel_id' });
@@ -261,6 +372,15 @@ Room.hasMany(Student, { foreignKey: 'booked_room_id' });
 
 Booking.belongsTo(Student, { foreignKey: 'paired_with', targetKey: 'roll_number', as: 'PairedStudent' });
 
+// SwapRequest Associations
+SwapRequest.belongsTo(Student, { foreignKey: 'initiator_roll', targetKey: 'roll_number', as: 'Initiator' });
+SwapRequest.belongsTo(Student, { foreignKey: 'target_student_roll', targetKey: 'roll_number', as: 'TargetStudent' });
+SwapRequest.belongsTo(Room, { foreignKey: 'source_room_id', as: 'SourceRoom' });
+SwapRequest.belongsTo(Room, { foreignKey: 'target_room_id', as: 'TargetRoom' });
+
+// PDFHistory Associations
+PDFHistory.belongsTo(Student, { foreignKey: 'student_roll', targetKey: 'roll_number' });
+
 module.exports = {
   sequelize,
   Admin,
@@ -269,5 +389,7 @@ module.exports = {
   Block,
   Floor,
   Room,
-  Booking
+  Booking,
+  SwapRequest,
+  PDFHistory
 };

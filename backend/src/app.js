@@ -6,11 +6,13 @@ const env = require('./config/env');
 const { sequelize, Admin, Student, Hostel, Block, Floor, Room } = require('./models');
 const { initDatabaseConnection } = require('./config/database');
 const { initExpiryCronJob } = require('./jobs/expiryCleanup');
+const { initSwapExpiryJob } = require('./jobs/swapExpiry');
 const { parseAndInsertStudents } = require('./utils/csvParser');
 
 const authRoutes = require('./routes/authRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const studentRoutes = require('./routes/studentRoutes');
+const swapRoutes = require('./routes/swapRoutes');
 
 const app = express();
 
@@ -28,6 +30,7 @@ app.get('/health', (req, res) => {
 app.use('/api', authRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/student', studentRoutes);
+app.use('/api', swapRoutes);
 
 // Global Error Handler
 app.use((err, req, res, next) => {
@@ -127,8 +130,9 @@ async function startServer() {
     await initDatabaseConnection();
     await autoSeedIfEmpty();
 
-    // Initialize Background Cron Job for Pairing Code Expiry
+    // Initialize Background Cron Jobs
     initExpiryCronJob();
+    initSwapExpiryJob();
 
     const PORT = env.port;
     app.listen(PORT, () => {

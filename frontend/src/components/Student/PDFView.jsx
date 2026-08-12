@@ -1,9 +1,28 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Download, FileCheck, CheckCircle2, Building, Users, Calendar, Award } from 'lucide-react';
 import api from '../../api/axios';
+import { getSwapActive } from '../../api/swap';
+import SwapButton from './SwapButton';
+import SwapModal from './SwapModal';
+import SwapConsentCard from './SwapConsentCard';
 
 const PDFView = ({ student, onLogout }) => {
   const [downloading, setDownloading] = useState(false);
+  const [swapActive, setSwapActive] = useState(false);
+  const [isSwapModalOpen, setIsSwapModalOpen] = useState(false);
+
+  useEffect(() => {
+    checkSwapStatus();
+  }, []);
+
+  const checkSwapStatus = async () => {
+    try {
+      const res = await getSwapActive();
+      setSwapActive(res.data.swapActive);
+    } catch (err) {
+      console.error('Failed to check swap status:', err);
+    }
+  };
 
   const handleDownloadPDF = async () => {
     setDownloading(true);
@@ -30,19 +49,23 @@ const PDFView = ({ student, onLogout }) => {
   const block = floor?.Block;
   const hostel = block?.Hostel;
 
+  const isSwapGenerated = student?.pdfInfo?.isSwap || (student?.pdfInfo?.version > 1);
+
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col justify-center items-center px-4 py-12">
-      <div className="max-w-2xl w-full bg-slate-800 rounded-3xl border border-slate-700/80 shadow-2xl p-8 md:p-10 relative">
+      <div className="max-w-2xl w-full bg-slate-800 rounded-3xl border border-slate-700/80 shadow-2xl p-8 md:p-10 relative space-y-6">
 
         {/* Status Badge */}
-        <div className="flex items-center justify-between mb-8 pb-6 border-b border-slate-700">
+        <div className="flex items-center justify-between pb-6 border-b border-slate-700">
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 bg-emerald-500/20 text-emerald-400 rounded-2xl flex items-center justify-center border border-emerald-500/30">
               <CheckCircle2 className="w-7 h-7" />
             </div>
             <div>
-              <span className="text-xs font-semibold text-emerald-400 uppercase tracking-widest block">Status: Locked & Confirmed</span>
-              <h1 className="text-xl font-bold text-white">Hostel Room Allocation Completed</h1>
+              <span className="text-xs font-semibold text-emerald-400 uppercase tracking-widest block">
+                Status: Locked & Confirmed {student?.pdfInfo?.version ? `(v${student.pdfInfo.version})` : ''}
+              </span>
+              <h1 className="text-xl font-bold text-white">Hostel Room Allocation Certificate</h1>
             </div>
           </div>
 
@@ -54,8 +77,15 @@ const PDFView = ({ student, onLogout }) => {
           </button>
         </div>
 
+        {/* Swap Alert Banner */}
+        {isSwapGenerated && (
+          <div className="bg-amber-500/10 border border-amber-500/30 text-amber-300 px-4 py-3 rounded-2xl text-xs font-bold flex items-center gap-2">
+            <span>⚠️ This allocation certificate has been updated due to a room swap (Version {student?.pdfInfo?.version || 2}).</span>
+          </div>
+        )}
+
         {/* Certificate Mock Card */}
-        <div className="bg-slate-900/90 rounded-2xl p-6 border border-slate-700/70 mb-8 space-y-6">
+        <div className="bg-slate-900/90 rounded-2xl p-6 border border-slate-700/70 space-y-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-blue-400 text-sm font-semibold">
               <Award className="w-5 h-5" />
@@ -104,6 +134,21 @@ const PDFView = ({ student, onLogout }) => {
           </div>
         </div>
 
+        {/* Swap Activity Section */}
+        {swapActive && (
+          <div className="bg-slate-800/90 rounded-2xl p-6 border border-slate-700/80 space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-bold text-amber-400">Room Swap Window Active</h3>
+                <p className="text-xs text-slate-400">You can request or respond to room exchange proposals.</p>
+              </div>
+              <SwapButton onClick={() => setIsSwapModalOpen(true)} />
+            </div>
+
+            <SwapConsentCard studentRoll={student.roll_number} onUpdate={() => window.location.reload()} />
+          </div>
+        )}
+
         {/* Download Button */}
         <button
           onClick={handleDownloadPDF}
@@ -113,6 +158,13 @@ const PDFView = ({ student, onLogout }) => {
           <Download className="w-5 h-5" />
           {downloading ? 'Generating Official PDF...' : 'Download Official Allocation PDF'}
         </button>
+
+        {/* Swap Request Modal */}
+        <SwapModal
+          isOpen={isSwapModalOpen}
+          onClose={() => setIsSwapModalOpen(false)}
+          onSuccess={() => window.location.reload()}
+        />
 
       </div>
     </div>

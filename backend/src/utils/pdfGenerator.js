@@ -2,15 +2,14 @@ const PDFDocument = require('pdfkit');
 const fs = require('fs');
 const path = require('path');
 
-async function generateAllocationPDF({ hostelName, blockName, floorNumber, roomNumber, student1, student2, allocationDate }) {
+async function generateAllocationPDF({ hostelName, blockName, floorNumber, roomNumber, student1, student2, allocationDate, isSwap = false, version = 1 }) {
   const pdfsDir = path.join(__dirname, '../../pdfs');
   if (!fs.existsSync(pdfsDir)) {
     fs.mkdirSync(pdfsDir, { recursive: true });
   }
 
   const rollA = student1.roll_number.replace(/[^a-zA-Z0-9]/g, '');
-  const rollB = student2 ? student2.roll_number.replace(/[^a-zA-Z0-9]/g, '') : 'solo';
-  const fileName = `allocation_${rollA}_${rollB}.pdf`;
+  const fileName = `allocation_${rollA}_v${version}.pdf`;
   const filePath = path.join(pdfsDir, fileName);
 
   return new Promise((resolve, reject) => {
@@ -31,15 +30,26 @@ async function generateAllocationPDF({ hostelName, blockName, floorNumber, roomN
 
     doc.moveDown(4);
 
+    let boxTop = 140;
+
+    // Optional Watermark Banner for Room Swaps
+    if (isSwap) {
+      doc.rect(40, 135, doc.page.width - 80, 35).fill('#fef3c7').strokeColor('#d97706').stroke();
+      doc.fillColor('#92400e')
+         .fontSize(11)
+         .font('Helvetica-Bold')
+         .text('** UPDATED ALLOCATION DUE TO ROOM SWAP **', 50, 147, { align: 'center' });
+      boxTop = 185;
+    }
+
     // Certificate Box Container
-    const boxTop = 150;
-    doc.rect(40, boxTop, doc.page.width - 80, 560)
+    doc.rect(40, boxTop, doc.page.width - 80, isSwap ? 525 : 560)
        .lineWidth(2)
        .strokeColor('#cbd5e1')
        .stroke();
 
     doc.fillColor('#0f172a').fontSize(14).font('Helvetica-Bold');
-    doc.text('ALLOCATION DETAILS', 60, boxTop + 20);
+    doc.text(`ALLOCATION DETAILS (v${version})`, 60, boxTop + 20);
 
     doc.moveTo(60, boxTop + 40).lineTo(doc.page.width - 60, boxTop + 40).strokeColor('#e2e8f0').stroke();
 
@@ -86,7 +96,7 @@ async function generateAllocationPDF({ hostelName, blockName, floorNumber, roomN
     // Official Verification Footer
     doc.rect(40, 720, doc.page.width - 80, 70).fill('#f8fafc');
     doc.fillColor('#64748b').fontSize(9).font('Helvetica')
-       .text('This is a computer-generated hostel allocation certificate issued by IIT Hostel Administration.', 50, 735, { align: 'center' })
+       .text(`This is an official computer-generated allocation certificate (Version ${version}).`, 50, 735, { align: 'center' })
        .text('Certificate ID: HAS-' + Math.random().toString(36).substring(2, 10).toUpperCase(), 50, 755, { align: 'center' });
 
     doc.end();

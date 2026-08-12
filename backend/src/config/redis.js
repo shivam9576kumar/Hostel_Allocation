@@ -73,4 +73,17 @@ try {
   redisClient = new MemoryRedisFallback();
 }
 
+async function setSwapActive(isActive) {
+  await redisClient.set('swap:active', isActive ? 'true' : 'false');
+  return isActive;
+}
+
+async function isSwapActive() {
+  const val = await redisClient.get('swap:active');
+  return val === 'true';
+}
+
 module.exports = redisClient;
+module.exports.setSwapActive = setSwapActive;
+module.exports.isSwapActive = isSwapActive;
+

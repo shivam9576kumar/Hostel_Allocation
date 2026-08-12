@@ -1,4 +1,4 @@
-const { Student, Hostel, Block, Floor, Room, Booking } = require('../models');
+const { Student, Hostel, Block, Floor, Room, Booking, PDFHistory } = require('../models');
 const { Op } = require('sequelize');
 const path = require('path');
 const fs = require('fs');
@@ -26,6 +26,12 @@ async function getStudentDashboard(req, res) {
 
     const isLocked = student.booking_status === 'Locked';
 
+    // Find latest PDF history entry to check version & swap status
+    const latestPdf = await PDFHistory.findOne({
+      where: { student_roll: studentRoll, is_current: true },
+      order: [['version', 'DESC']]
+    });
+
     // Find eligible active hostels if not locked
     const now = new Date();
     const eligibleHostels = isLocked ? [] : await Hostel.findAll({
@@ -42,6 +48,11 @@ async function getStudentDashboard(req, res) {
       student,
       bookingStatus: student.booking_status,
       redirectToPdf: isLocked,
+      pdfInfo: latestPdf ? {
+        version: latestPdf.version,
+        isSwap: latestPdf.is_swap,
+        generatedAt: latestPdf.generated_at
+      } : null,
       eligibleHostels
     });
   } catch (err) {
@@ -168,11 +179,22 @@ async function getFloorRooms(req, res) {
   }
 }
 
-// Download Allocation PDF
+// Download Allocation PDF (Serves Latest Version from PDFHistory)
 async function downloadAllocationPDF(req, res) {
   try {
     const studentRoll = req.student.roll_number;
 
+    // Check if current version exists in PDFHistory
+    let latestPdf = await PDFHistory.findOne({
+      where: { student_roll: studentRoll, is_current: true },
+      order: [['version', 'DESC']]
+    });
+
+    if (latestPdf && fs.existsSync(latestPdf.pdf_path)) {
+      return res.download(latestPdf.pdf_path, `Allocation_Certificate_${studentRoll}_v${latestPdf.version}.pdf`);
+    }
+
+    // Fallback: Generate Initial Version (v1) if missing
     const student = await Student.findOne({
       where: { roll_number: studentRoll },
       include: [
@@ -188,7 +210,6 @@ async function downloadAllocationPDF(req, res) {
       return res.status(400).json({ error: 'No active locked room booking found for PDF download.' });
     }
 
-    // Find student's booking record
     const booking = await Booking.findOne({
       where: { student_roll: studentRoll, room_id: student.booked_room_id }
     });
@@ -218,10 +239,21 @@ async function downloadAllocationPDF(req, res) {
       roomNumber: room.room_number,
       student1: primaryStudent,
       student2: secondaryStudent,
-      allocationDate: booking ? booking.booking_date : new Date()
+      allocationDate: booking ? booking.booking_date : new Date(),
+      isSwap: false,
+      version: 1
     });
 
-    return res.download(filePath, `Allocation_Certificate_${studentRoll}.pdf`);
+    latestPdf = await PDFHistory.create({
+      student_roll: studentRoll,
+      room_id: room.room_id,
+      pdf_path: filePath,
+      version: 1,
+      is_swap: false,
+      is_current: true
+    });
+
+    return res.download(filePath, `Allocation_Certificate_${studentRoll}_v1.pdf`);
   } catch (err) {
     console.error('Error in downloadAllocationPDF:', err);
     return res.status(500).json({ error: 'Failed to generate and download allocation PDF.' });
