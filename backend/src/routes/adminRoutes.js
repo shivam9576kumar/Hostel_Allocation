@@ -21,10 +21,36 @@ const {
   toggleFloorReservation,
   getRooms,
   createRoom,
+  bulkCreateRooms,
   deleteRoom,
   toggleRoomReservation,
   getStudents
 } = require('../controllers/adminController');
+
+const verifyAdmin = adminAuth;
+
+// Server-side validation middleware for bulk room creation
+const validateBulkRoom = (req, res, next) => {
+  const { floorId, floor_id, roomStart, roomEnd } = req.body;
+  const targetFloorId = floorId || floor_id;
+
+  if (!targetFloorId || roomStart === undefined || roomEnd === undefined) {
+    return res.status(400).json({ error: 'Missing required fields: floorId, roomStart, roomEnd' });
+  }
+
+  const start = parseInt(roomStart, 10);
+  const end = parseInt(roomEnd, 10);
+
+  if (isNaN(start) || isNaN(end)) {
+    return res.status(400).json({ error: 'Room numbers must be valid integers' });
+  }
+
+  if (start > end) {
+    return res.status(400).json({ error: 'Start room number must be less than or equal to end room number' });
+  }
+
+  next();
+};
 
 // Multer Upload Setup
 const uploadsDir = path.join(__dirname, '../../uploads');
@@ -68,6 +94,7 @@ router.put('/floors/:id/reserve', toggleFloorReservation);
 // Room Management
 router.get('/rooms', getRooms);
 router.post('/rooms', createRoom);
+router.post('/rooms/bulk', verifyAdmin, validateBulkRoom, bulkCreateRooms);
 router.delete('/rooms/:id', deleteRoom);
 router.put('/rooms/:id/reserve', toggleRoomReservation);
 

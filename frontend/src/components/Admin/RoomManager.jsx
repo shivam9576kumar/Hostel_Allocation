@@ -1,22 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import api from '../../api/axios';
-import { DoorClosed, Plus, Trash2, Lock, Unlock, Users, Filter } from 'lucide-react';
+import { DoorClosed, Trash2, Lock, Unlock, Users, Filter } from 'lucide-react';
+import BulkRoomCreator from './BulkRoomCreator';
 
 const RoomManager = () => {
   const [rooms, setRooms] = useState([]);
   const [floors, setFloors] = useState([]);
   const [filterFloorId, setFilterFloorId] = useState('ALL');
 
-  const [newFloorId, setNewFloorId] = useState('');
-  const [newRoomNumber, setNewRoomNumber] = useState('');
-
   const fetchFloors = async () => {
     try {
       const res = await api.get('/admin/floors?blockId=ALL');
       setFloors(res.data.floors || []);
-      if (res.data.floors?.length > 0 && !newFloorId) {
-        setNewFloorId(res.data.floors[0].floor_id);
-      }
     } catch (err) {
       console.error(err);
     }
@@ -41,23 +36,6 @@ const RoomManager = () => {
     fetchRooms();
   }, [filterFloorId]);
 
-  const handleCreateRoom = async (e) => {
-    e.preventDefault();
-    if (!newFloorId || !newRoomNumber) return;
-
-    try {
-      await api.post('/admin/rooms', {
-        floor_id: parseInt(newFloorId, 10),
-        room_number: newRoomNumber,
-        capacity: 2
-      });
-      setNewRoomNumber('');
-      fetchRooms();
-    } catch (err) {
-      alert(err.response?.data?.error || 'Failed to create room.');
-    }
-  };
-
   const handleDeleteRoom = async (roomId) => {
     if (!window.confirm('Delete this room? Associated bookings will be removed.')) return;
     try {
@@ -79,53 +57,8 @@ const RoomManager = () => {
 
   return (
     <div className="space-y-8">
-      {/* Create Room */}
-      <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200">
-        <h2 className="text-base font-bold text-slate-900 mb-4 flex items-center gap-2">
-          <Plus className="w-5 h-5 text-amber-500" />
-          Add Room to Floor
-        </h2>
-
-        <form onSubmit={handleCreateRoom} className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div>
-            <label className="block text-xs font-semibold text-slate-600 uppercase mb-1">Target Floor</label>
-            <select
-              value={newFloorId}
-              onChange={(e) => setNewFloorId(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-amber-500"
-              required
-            >
-              {floors.map((f) => (
-                <option key={f.floor_id} value={f.floor_id}>
-                  Floor {f.floor_number} ({f.Block?.name} - {f.Block?.Hostel?.name})
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-slate-600 uppercase mb-1">Room Number</label>
-            <input
-              type="text"
-              placeholder="e.g. 101"
-              value={newRoomNumber}
-              onChange={(e) => setNewRoomNumber(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-amber-500"
-              required
-            />
-          </div>
-
-          <div className="flex items-end">
-            <button
-              type="submit"
-              className="w-full py-2 px-4 bg-slate-900 hover:bg-slate-800 text-white font-semibold rounded-xl transition text-sm flex items-center justify-center gap-1.5"
-            >
-              <Plus className="w-4 h-4" />
-              Create Room (Capacity: 2)
-            </button>
-          </div>
-        </form>
-      </div>
+      {/* Add Room(s) (Single or Range) Creator */}
+      <BulkRoomCreator onSuccess={fetchRooms} />
 
       {/* Directory & Filters */}
       <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200">

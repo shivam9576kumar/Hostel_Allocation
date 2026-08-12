@@ -415,6 +415,88 @@ async function getStudents(req, res) {
   }
 }
 
+async function bulkCreateRooms(req, res) {
+  let transaction;
+  try {
+    const { floorId, floor_id, roomStart, roomEnd, capacity } = req.body;
+    const targetFloorId = floorId || floor_id;
+
+    if (!targetFloorId || roomStart === undefined || roomEnd === undefined) {
+      return res.status(400).json({ error: 'Missing required fields: floorId, roomStart, roomEnd.' });
+    }
+
+    const start = parseInt(roomStart, 10);
+    const end = parseInt(roomEnd, 10);
+
+    if (isNaN(start) || isNaN(end)) {
+      return res.status(400).json({ error: 'Room numbers must be valid integers.' });
+    }
+
+    if (start > end) {
+      return res.status(400).json({ error: 'Start room number must be less than or equal to end room number.' });
+    }
+
+    const floor = await Floor.findByPk(targetFloorId);
+    if (!floor) {
+      return res.status(404).json({ error: 'Selected floor does not exist.' });
+    }
+
+    transaction = await sequelize.transaction();
+
+    const existingRooms = await Room.findAll({
+      where: { floor_id: parseInt(targetFloorId, 10) },
+      transaction
+    });
+
+    const existingNumbers = new Set(existingRooms.map(r => String(r.room_number)));
+    const skipped = [];
+    const roomData = [];
+
+    for (let num = start; num <= end; num++) {
+      const roomNumStr = String(num);
+      if (existingNumbers.has(roomNumStr)) {
+        skipped.push(roomNumStr);
+      } else {
+        roomData.push({
+          floor_id: parseInt(targetFloorId, 10),
+          room_number: roomNumStr,
+          capacity: capacity ? parseInt(capacity, 10) : 2,
+          current_occupancy: 0,
+          is_reserved: false,
+          status: 'Vacant'
+        });
+      }
+    }
+
+    if (roomData.length === 0) {
+      await transaction.rollback();
+      return res.status(400).json({
+        error: 'No new rooms to add – all room numbers in this range already exist.',
+        skipped,
+        skippedRooms: skipped,
+        errors: skipped.map(num => `Room ${num} already exists on floor #${targetFloorId} and was skipped.`)
+      });
+    }
+
+    const createdRooms = await Room.bulkCreate(roomData, { transaction });
+
+    await transaction.commit();
+
+    return res.status(201).json({
+      message: `Successfully created ${createdRooms.length} room(s).`,
+      createdCount: createdRooms.length,
+      createdRooms,
+      skipped,
+      skippedRooms: skipped,
+      errors: skipped.map(num => `Room ${num} already exists on floor #${targetFloorId} and was skipped.`)
+    });
+  } catch (err) {
+    if (transaction) await transaction.rollback();
+    console.error('[bulkCreateRooms Error]:', err.stack || err);
+    return res.status(500).json({ error: `Failed to bulk create rooms: ${err.message}` });
+  }
+}
+
 module.exports = {
   uploadStudents,
   getHostels,
@@ -432,7 +514,9 @@ module.exports = {
   toggleFloorReservation,
   getRooms,
   createRoom,
+  bulkCreateRooms,
   deleteRoom,
   toggleRoomReservation,
   getStudents
 };
+
