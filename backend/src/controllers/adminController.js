@@ -1,5 +1,5 @@
 const { parseAndInsertStudents } = require('../utils/csvParser');
-const { Hostel, Block, Floor, Room, Booking, Student, sequelize } = require('../models');
+const { Hostel, Block, Floor, Room, Booking, Student, SwapRequest, sequelize } = require('../models');
 const { Op } = require('sequelize');
 
 // 1. Upload Students Roster
@@ -106,79 +106,209 @@ async function updateHostel(req, res) {
   }
 }
 
-// 5. Delete Hostel (Cascade Delete Blocks, Floors, Rooms, Bookings)
+// 5. Delete Hostel (with swap_requests cleanup)
 async function deleteHostel(req, res) {
-  try {
-    const { id } = req.params;
-    const hostel = await Hostel.findByPk(id);
-    if (!hostel) {
-      return res.status(404).json({ error: 'Hostel not found.' });
-    }
-
-    await hostel.destroy();
-    return res.json({ message: `Hostel #${id} and all its hierarchy were deleted successfully.` });
-  } catch (err) {
-    console.error('Error in deleteHostel:', err);
-    return res.status(500).json({ error: 'Failed to delete hostel.' });
-  }
-}
-
-// 6. Clear Hostel Data (Delete all blocks, floors, rooms, and bookings – keep hostel & student profiles)
-async function clearHostelData(req, res) {
+  const { id } = req.params;
   const transaction = await sequelize.transaction();
   try {
-    const { id } = req.params;
+    // 1. Verify the hostel exists
     const hostel = await Hostel.findByPk(id, { transaction });
     if (!hostel) {
       await transaction.rollback();
-      return res.status(404).json({ error: 'Hostel not found.' });
+      return res.status(404).json({ error: 'Hostel not found' });
     }
 
-    // Find all blocks belonging to hostel
-    const blocks = await Block.findAll({ where: { hostel_id: id }, transaction });
-    const blockIds = blocks.map(b => b.block_id);
+    // 2. Find all rooms belonging to this hostel (through blocks → floors)
+    const rooms = await Room.findAll({
+      attributes: ['room_id'],
+      include: [{
+        model: Floor,
+        required: true,
+        include: [{
+          model: Block,
+          required: true,
+          where: { hostel_id: id }
+        }]
+      }],
+      transaction
+    });
 
-    if (blockIds.length > 0) {
-      const floors = await Floor.findAll({ where: { block_id: { [Op.in]: blockIds } }, transaction });
-      const floorIds = floors.map(f => f.floor_id);
+    const roomIds = rooms.map(r => r.room_id);
 
-      if (floorIds.length > 0) {
-        const rooms = await Room.findAll({ where: { floor_id: { [Op.in]: floorIds } }, transaction });
-        const roomIds = rooms.map(r => r.room_id);
-
-        if (roomIds.length > 0) {
-          // Reset booking status on affected students
-          const bookings = await Booking.findAll({ where: { room_id: { [Op.in]: roomIds } }, transaction });
-          const studentRolls = bookings.map(b => b.student_roll);
-
-          if (studentRolls.length > 0) {
-            await Student.update({
-              booking_status: 'Pending',
-              booked_room_id: null
-            }, {
-              where: { roll_number: { [Op.in]: studentRolls } },
-              transaction
-            });
-          }
-
-          // Delete bookings
-          await Booking.destroy({ where: { room_id: { [Op.in]: roomIds } }, transaction });
-          // Delete rooms
-          await Room.destroy({ where: { floor_id: { [Op.in]: floorIds } }, transaction });
-        }
-        // Delete floors
-        await Floor.destroy({ where: { block_id: { [Op.in]: blockIds } }, transaction });
-      }
-      // Delete blocks
-      await Block.destroy({ where: { hostel_id: id }, transaction });
+    // 3. Delete all swap_requests referencing these rooms (source or target)
+    if (roomIds.length > 0) {
+      const deletedSwaps = await SwapRequest.destroy({
+        where: {
+          [Op.or]: [
+            { source_room_id: roomIds },
+            { target_room_id: roomIds }
+          ]
+        },
+        transaction
+      });
+      console.log(`🗑️ Deleted ${deletedSwaps} swap request(s) referencing rooms in hostel #${id}`);
     }
+
+    // 4. Now delete the hostel – cascades to blocks → floors → rooms → bookings
+    await hostel.destroy({ transaction });
 
     await transaction.commit();
-    return res.json({ message: `All blocks, floors, rooms, and bookings for Hostel #${id} cleared successfully.` });
-  } catch (err) {
+    return res.json({ 
+      message: `Hostel "${hostel.name}" (ID: ${id}) deleted successfully`,
+      deletedSwapRequests: roomIds.length > 0 ? 'All related swap requests removed' : 'None'
+    });
+
+  } catch (error) {
     await transaction.rollback();
-    console.error('Error in clearHostelData:', err);
-    return res.status(500).json({ error: 'Failed to clear hostel data.' });
+    console.error('❌ Delete hostel error:', error);
+    return res.status(500).json({ 
+      error: 'Failed to delete hostel. Please try again.',
+      details: error.message 
+    });
+  }
+}
+
+// 6. Clear Hostel Data (with swap_requests cleanup)
+async function clearHostelData(req, res) {
+  const { id } = req.params;
+  const transaction = await sequelize.transaction();
+  
+  try {
+    // 1. Verify the hostel exists
+    const hostel = await Hostel.findByPk(id, { transaction });
+    if (!hostel) {
+      await transaction.rollback();
+      return res.status(404).json({ 
+        error: `Hostel with ID ${id} not found` 
+      });
+    }
+
+    // 2. Find all rooms belonging to this hostel (through blocks → floors)
+    const rooms = await Room.findAll({
+      attributes: ['room_id', 'floor_id'],
+      include: [{
+        model: Floor,
+        required: true,
+        include: [{
+          model: Block,
+          required: true,
+          where: { hostel_id: id }
+        }]
+      }],
+      transaction
+    });
+
+    const roomIds = rooms.map(r => r.room_id);
+
+    let deletedSwaps = 0;
+    let deletedBookings = 0;
+    let studentsReset = 0;
+    let deletedRooms = 0;
+
+    // 3. 🔥 CRITICAL: Delete all swap_requests referencing these rooms FIRST
+    if (roomIds.length > 0) {
+      deletedSwaps = await SwapRequest.destroy({
+        where: {
+          [Op.or]: [
+            { source_room_id: roomIds },
+            { target_room_id: roomIds }
+          ]
+        },
+        transaction
+      });
+      console.log(`🗑️ Deleted ${deletedSwaps} swap request(s) referencing rooms in hostel #${id}`);
+    }
+
+    // 4. Delete all bookings for rooms in this hostel
+    if (roomIds.length > 0) {
+      deletedBookings = await Booking.destroy({
+        where: { room_id: roomIds },
+        transaction
+      });
+      console.log(`🗑️ Deleted ${deletedBookings} booking(s) for rooms in hostel #${id}`);
+    }
+
+    // 5. Reset students who were booked in this hostel
+    if (roomIds.length > 0) {
+      const updatedStudents = await Student.update(
+        { 
+          booked_room_id: null, 
+          booking_status: 'Pending' 
+        },
+        { 
+          where: { booked_room_id: roomIds },
+          transaction 
+        }
+      );
+      studentsReset = updatedStudents[0] || 0;
+      console.log(`🔄 Reset ${studentsReset} student(s) booked in hostel #${id}`);
+    }
+
+    // 6. Delete all rooms in this hostel
+    if (roomIds.length > 0) {
+      deletedRooms = await Room.destroy({
+        where: { room_id: roomIds },
+        transaction
+      });
+      console.log(`🗑️ Deleted ${deletedRooms} room(s) in hostel #${id}`);
+    }
+
+    // 7. Delete all floors in this hostel
+    const floors = await Floor.findAll({
+      attributes: ['floor_id'],
+      include: [{
+        model: Block,
+        required: true,
+        where: { hostel_id: id }
+      }],
+      transaction
+    });
+    const floorIds = floors.map(f => f.floor_id);
+    let deletedFloors = 0;
+    if (floorIds.length > 0) {
+      deletedFloors = await Floor.destroy({
+        where: { floor_id: floorIds },
+        transaction
+      });
+      console.log(`🗑️ Deleted ${deletedFloors} floor(s) in hostel #${id}`);
+    }
+
+    // 8. Delete all blocks in this hostel
+    const deletedBlocks = await Block.destroy({
+      where: { hostel_id: id },
+      transaction
+    });
+    console.log(`🗑️ Deleted ${deletedBlocks} block(s) in hostel #${id}`);
+
+    // 9. ✅ Commit the transaction
+    await transaction.commit();
+
+    return res.json({ 
+      success: true,
+      message: `✅ All data cleared for hostel "${hostel.name}" (ID: ${id})`,
+      summary: {
+        hostel: hostel.name,
+        blocksDeleted: deletedBlocks,
+        floorsDeleted: deletedFloors,
+        roomsDeleted: deletedRooms,
+        bookingsDeleted: deletedBookings,
+        swapRequestsDeleted: deletedSwaps,
+        studentsReset: studentsReset
+      }
+    });
+
+  } catch (error) {
+    // Rollback the transaction on any error
+    await transaction.rollback();
+    console.error('❌ Clear hostel data error:', error);
+    
+    // Return a clear error message
+    return res.status(500).json({ 
+      success: false,
+      error: 'Failed to clear hostel data.',
+      details: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
   }
 }
 

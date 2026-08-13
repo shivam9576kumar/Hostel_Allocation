@@ -375,8 +375,16 @@ Booking.belongsTo(Student, { foreignKey: 'paired_with', targetKey: 'roll_number'
 // SwapRequest Associations
 SwapRequest.belongsTo(Student, { foreignKey: 'initiator_roll', targetKey: 'roll_number', as: 'Initiator' });
 SwapRequest.belongsTo(Student, { foreignKey: 'target_student_roll', targetKey: 'roll_number', as: 'TargetStudent' });
-SwapRequest.belongsTo(Room, { foreignKey: 'source_room_id', as: 'SourceRoom' });
-SwapRequest.belongsTo(Room, { foreignKey: 'target_room_id', as: 'TargetRoom' });
+SwapRequest.belongsTo(Room, { 
+  foreignKey: 'source_room_id', 
+  as: 'SourceRoom',
+  onDelete: 'CASCADE'
+});
+SwapRequest.belongsTo(Room, { 
+  foreignKey: 'target_room_id', 
+  as: 'TargetRoom',
+  onDelete: 'CASCADE'
+});
 
 // PDFHistory Associations
 PDFHistory.belongsTo(Student, { foreignKey: 'student_roll', targetKey: 'roll_number' });
