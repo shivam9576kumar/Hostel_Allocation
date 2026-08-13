@@ -5,8 +5,6 @@ import api from '../../api/axios';
 const SettingsModal = ({ hostel, onClose, onSaveSuccess }) => {
   const [name, setName] = useState(hostel.name);
   const [gender, setGender] = useState(hostel.allowed_gender);
-  const [programme, setProgramme] = useState(hostel.allowed_programme);
-  const [year, setYear] = useState(hostel.allowed_year);
 
   // Format ISO timestamp to datetime-local string
   const formatForInput = (isoString) => {
@@ -30,8 +28,6 @@ const SettingsModal = ({ hostel, onClose, onSaveSuccess }) => {
       await api.put(`/admin/hostels/${hostel.hostel_id}/settings`, {
         name,
         allowed_gender: gender,
-        allowed_programme: programme,
-        allowed_year: parseInt(year, 10),
         start_time: new Date(startTime).toISOString(),
         end_time: new Date(endTime).toISOString()
       });
@@ -60,7 +56,7 @@ const SettingsModal = ({ hostel, onClose, onSaveSuccess }) => {
           </div>
           <div>
             <h2 className="text-xl font-bold text-slate-900">Hostel Rules & Time Window</h2>
-            <p className="text-xs text-slate-500">Configure student eligibility rules and booking window.</p>
+            <p className="text-xs text-slate-500">Configure hostel name, allowed gender, and active booking window.</p>
           </div>
         </div>
 
@@ -84,51 +80,18 @@ const SettingsModal = ({ hostel, onClose, onSaveSuccess }) => {
             />
           </div>
 
-          <div className="grid grid-cols-3 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1">
-                Gender
-              </label>
-              <select
-                value={gender}
-                onChange={(e) => setGender(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
-              >
-                <option value="Male">Male</option>
-                <option value="Female">Female</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1">
-                Programme
-              </label>
-              <select
-                value={programme}
-                onChange={(e) => setProgramme(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
-              >
-                <option value="B.Tech">B.Tech</option>
-                <option value="M.Tech">M.Tech</option>
-                <option value="M.Sc">M.Sc</option>
-                <option value="PhD">PhD</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1">
-                Allowed Year
-              </label>
-              <input
-                type="number"
-                min={1}
-                max={5}
-                value={year}
-                onChange={(e) => setYear(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
-                required
-              />
-            </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1">
+              Gender
+            </label>
+            <select
+              value={gender}
+              onChange={(e) => setGender(e.target.value)}
+              className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
+            >
+              <option value="Male">Male</option>
+              <option value="Female">Female</option>
+            </select>
           </div>
 
           <div className="grid grid-cols-2 gap-3 pt-2">

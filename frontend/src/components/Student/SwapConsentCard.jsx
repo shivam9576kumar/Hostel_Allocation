@@ -116,11 +116,15 @@ const SwapConsentCard = ({ requestId, currentUserRoll, studentRoll, onUpdate }) 
     console.log('  - consents after optimistic update:', { ...consents, [resolvedRoll]: true });
 
     try {
-      await giveConsent(activeId, true);
+      const res = await giveConsent(activeId, true);
       setToastMsg('✅ You have consented to the room swap!');
       setTimeout(() => setToastMsg(null), 4000);
       await fetchStatus();
-      if (onUpdate) onUpdate();
+      if (res.data.swapRequest?.status === 'Executed') {
+        window.location.reload();
+      } else if (onUpdate) {
+        onUpdate();
+      }
     } catch (err) {
       console.error(err);
       setError(err.response?.data?.error || 'Failed to record consent.');

@@ -1,4 +1,4 @@
-const { Student, Room, Floor, Block, Hostel, Booking, sequelize } = require('../models');
+const { Student, Room, Floor, Block, Hostel, Booking, AllocationRule, sequelize } = require('../models');
 const redisClient = require('../config/redis');
 const { generatePairingCode } = require('../utils/codeGenerator');
 const { generateAllocationPDF } = require('../utils/pdfGenerator');
@@ -55,13 +55,43 @@ async function bookRoom(req, res) {
     const hostel = room.Floor.Block.Hostel;
     const now = new Date();
 
-    if (
-      hostel.allowed_gender !== student.gender ||
-      hostel.allowed_programme !== student.programme ||
-      hostel.allowed_year !== student.year
-    ) {
+    if (hostel.allowed_gender !== student.gender) {
       if (!transaction.finished) await transaction.rollback();
-      return res.status(403).json({ error: 'Student does not match hostel eligibility criteria.' });
+      return res.status(403).json({ error: 'Student gender does not match hostel criteria.' });
+    }
+
+    if (now < new Date(hostel.start_time) || now > new Date(hostel.end_time)) {
+      if (!transaction.finished) await transaction.rollback();
+      return res.status(403).json({ error: 'Hostel booking time window has expired or is not yet active.' });
+    }
+
+    // Check Allocation Rules for hostel, block, floor, programme and year
+    const rules = await AllocationRule.findAll({
+      where: {
+        hostel_id: hostel.hostel_id,
+        programme: student.programme,
+        [Op.or]: [
+          { allowed_year: student.year },
+          { allowed_year: null }
+        ]
+      },
+      transaction
+    });
+
+    if (rules.length > 0) {
+      const matchingRule = rules.find(r => 
+        r.block_id === room.Floor.block_id && 
+        room.Floor.floor_number >= r.floor_start && 
+        room.Floor.floor_number <= r.floor_end
+      );
+
+      if (!matchingRule) {
+        if (!transaction.finished) await transaction.rollback();
+        return res.status(403).json({ error: `Your programme (${student.programme}) & Year (${student.year}) is not eligible for Block ${room.Floor.Block.name}, Floor ${room.Floor.floor_number}.` });
+      }
+    } else {
+      if (!transaction.finished) await transaction.rollback();
+      return res.status(403).json({ error: 'No active allocation rule permits your programme and year for this room.' });
     }
 
     if (now < new Date(hostel.start_time) || now > new Date(hostel.end_time)) {
@@ -199,13 +229,39 @@ async function pairRoom(req, res) {
 
     // 4. Verify Student B hostel eligibility
     const hostel = room.Floor.Block.Hostel;
-    if (
-      hostel.allowed_gender !== studentB.gender ||
-      hostel.allowed_programme !== studentB.programme ||
-      hostel.allowed_year !== studentB.year
-    ) {
+    if (hostel.allowed_gender !== studentB.gender) {
+      if (!transaction.finished) await transaction.rollback();
+      return res.status(403).json({ error: 'Student gender does not match hostel criteria.' });
+    }
+
+    const rules = await AllocationRule.findAll({
+      where: {
+        hostel_id: hostel.hostel_id,
+        programme: studentB.programme,
+        [Op.or]: [
+          { allowed_year: studentB.year },
+          { allowed_year: null }
+        ]
+      },
+      transaction
+    });
+
+    if (rules.length === 0) {
       if (!transaction.finished) await transaction.rollback();
       return res.status(403).json({ error: 'You do not match the hostel eligibility requirements.' });
+    }
+
+    const matchingRule = rules.find(r =>
+      r.block_id === room.Floor.block_id &&
+      room.Floor.floor_number >= r.floor_start &&
+      room.Floor.floor_number <= r.floor_end
+    );
+
+    if (!matchingRule) {
+      if (!transaction.finished) await transaction.rollback();
+      return res.status(403).json({ 
+        error: `Your programme (${studentB.programme}) & Year (${studentB.year}) is not eligible for Block ${room.Floor.Block.name}, Floor ${room.Floor.floor_number}.` 
+      });
     }
 
     if (now < new Date(hostel.start_time) || now > new Date(hostel.end_time)) {
@@ -397,13 +453,39 @@ async function pairByCode(req, res) {
 
     // 3. Verify Student B hostel eligibility
     const hostel = room.Floor.Block.Hostel;
-    if (
-      hostel.allowed_gender !== studentB.gender ||
-      hostel.allowed_programme !== studentB.programme ||
-      hostel.allowed_year !== studentB.year
-    ) {
+    if (hostel.allowed_gender !== studentB.gender) {
+      if (!transaction.finished) await transaction.rollback();
+      return res.status(403).json({ error: 'Student gender does not match hostel criteria.' });
+    }
+
+    const rules = await AllocationRule.findAll({
+      where: {
+        hostel_id: hostel.hostel_id,
+        programme: studentB.programme,
+        [Op.or]: [
+          { allowed_year: studentB.year },
+          { allowed_year: null }
+        ]
+      },
+      transaction
+    });
+
+    if (rules.length === 0) {
       if (!transaction.finished) await transaction.rollback();
       return res.status(403).json({ error: 'You do not match the hostel eligibility requirements.' });
+    }
+
+    const matchingRule = rules.find(r =>
+      r.block_id === room.Floor.block_id &&
+      room.Floor.floor_number >= r.floor_start &&
+      room.Floor.floor_number <= r.floor_end
+    );
+
+    if (!matchingRule) {
+      if (!transaction.finished) await transaction.rollback();
+      return res.status(403).json({ 
+        error: `Your programme (${studentB.programme}) & Year (${studentB.year}) is not eligible for Block ${room.Floor.Block.name}, Floor ${room.Floor.floor_number}.` 
+      });
     }
 
     if (now < new Date(hostel.start_time) || now > new Date(hostel.end_time)) {

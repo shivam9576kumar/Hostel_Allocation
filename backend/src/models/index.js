@@ -88,14 +88,6 @@ const Hostel = sequelize.define('Hostel', {
     type: DataTypes.STRING(10),
     allowNull: false
   },
-  allowed_programme: {
-    type: DataTypes.STRING(20),
-    allowNull: false
-  },
-  allowed_year: {
-    type: DataTypes.INTEGER,
-    allowNull: false
-  },
   start_time: {
     type: DataTypes.DATE,
     allowNull: false
@@ -110,6 +102,51 @@ const Hostel = sequelize.define('Hostel', {
   }
 }, {
   tableName: 'hostels'
+});
+
+const AllocationRule = sequelize.define('AllocationRule', {
+  rule_id: {
+    type: DataTypes.INTEGER,
+    primaryKey: true,
+    autoIncrement: true
+  },
+  hostel_id: {
+    type: DataTypes.INTEGER,
+    allowNull: false
+  },
+  programme: {
+    type: DataTypes.STRING(50),
+    allowNull: false
+  },
+  allowed_year: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    defaultValue: null
+  },
+  block_id: {
+    type: DataTypes.INTEGER,
+    allowNull: false
+  },
+  floor_start: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    defaultValue: 0
+  },
+  floor_end: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    defaultValue: 999
+  },
+  created_at: {
+    type: DataTypes.DATE,
+    defaultValue: DataTypes.NOW
+  },
+  updated_at: {
+    type: DataTypes.DATE,
+    defaultValue: DataTypes.NOW
+  }
+}, {
+  tableName: 'allocation_rules'
 });
 
 const Block = sequelize.define('Block', {
@@ -387,7 +424,12 @@ SwapRequest.belongsTo(Room, {
 });
 
 // PDFHistory Associations
-PDFHistory.belongsTo(Student, { foreignKey: 'student_roll', targetKey: 'roll_number' });
+// AllocationRule Associations
+Hostel.hasMany(AllocationRule, { foreignKey: 'hostel_id', onDelete: 'CASCADE' });
+AllocationRule.belongsTo(Hostel, { foreignKey: 'hostel_id' });
+
+Block.hasMany(AllocationRule, { foreignKey: 'block_id', onDelete: 'CASCADE' });
+AllocationRule.belongsTo(Block, { foreignKey: 'block_id' });
 
 module.exports = {
   sequelize,
@@ -399,5 +441,6 @@ module.exports = {
   Room,
   Booking,
   SwapRequest,
-  PDFHistory
+  PDFHistory,
+  AllocationRule
 };

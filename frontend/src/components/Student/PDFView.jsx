@@ -27,7 +27,8 @@ const PDFView = ({ student, onLogout }) => {
   const handleDownloadPDF = async () => {
     setDownloading(true);
     try {
-      const response = await api.get('/student/pdf', { responseType: 'blob' });
+      const timestamp = new Date().getTime();
+      const response = await api.get(`/student/pdf?t=${timestamp}`, { responseType: 'blob' });
       const blob = new Blob([response.data], { type: 'application/pdf' });
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');

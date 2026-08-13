@@ -1,4 +1,4 @@
-const { Student, Hostel, Block, Floor, Room, Booking, PDFHistory } = require('../models');
+const { Student, Hostel, Block, Floor, Room, Booking, PDFHistory, AllocationRule } = require('../models');
 const { Op } = require('sequelize');
 const path = require('path');
 const fs = require('fs');
@@ -34,15 +34,33 @@ async function getStudentDashboard(req, res) {
 
     // Find eligible active hostels if not locked
     const now = new Date();
-    const eligibleHostels = isLocked ? [] : await Hostel.findAll({
-      where: {
-        allowed_gender: student.gender,
-        allowed_programme: student.programme,
-        allowed_year: student.year,
-        start_time: { [Op.lte]: now },
-        end_time: { [Op.gte]: now }
+    let eligibleHostels = [];
+    if (!isLocked) {
+      const activeHostels = await Hostel.findAll({
+        where: {
+          allowed_gender: student.gender,
+          start_time: { [Op.lte]: now },
+          end_time: { [Op.gte]: now }
+        },
+        order: [['name', 'ASC']]
+      });
+
+      for (const hostel of activeHostels) {
+        const ruleCount = await AllocationRule.count({
+          where: {
+            hostel_id: hostel.hostel_id,
+            programme: student.programme,
+            [Op.or]: [
+              { allowed_year: student.year },
+              { allowed_year: null }
+            ]
+          }
+        });
+        if (ruleCount > 0) {
+          eligibleHostels.push(hostel);
+        }
       }
-    });
+    }
 
     return res.json({
       student,
@@ -67,16 +85,31 @@ async function getEligibleHostels(req, res) {
     const student = req.student;
     const now = new Date();
 
-    const hostels = await Hostel.findAll({
+    const activeHostels = await Hostel.findAll({
       where: {
         allowed_gender: student.gender,
-        allowed_programme: student.programme,
-        allowed_year: student.year,
         start_time: { [Op.lte]: now },
         end_time: { [Op.gte]: now }
       },
       order: [['name', 'ASC']]
     });
+
+    const hostels = [];
+    for (const hostel of activeHostels) {
+      const ruleCount = await AllocationRule.count({
+        where: {
+          hostel_id: hostel.hostel_id,
+          programme: student.programme,
+          [Op.or]: [
+            { allowed_year: student.year },
+            { allowed_year: null }
+          ]
+        }
+      });
+      if (ruleCount > 0) {
+        hostels.push(hostel);
+      }
+    }
 
     return res.json({ hostels });
   } catch (err) {
@@ -85,20 +118,18 @@ async function getEligibleHostels(req, res) {
   }
 }
 
-// Get Non-Reserved Blocks of an Eligible Hostel
+// Get Non-Reserved Blocks of an Eligible Hostel for Student's Programme & Year
 async function getHostelBlocks(req, res) {
   try {
     const { hostelId } = req.params;
     const student = req.student;
     const now = new Date();
 
-    // Verify hostel is valid, eligible, and within active time window
+    // Verify hostel is valid, gender matches, and within active time window
     const hostel = await Hostel.findOne({
       where: {
         hostel_id: hostelId,
         allowed_gender: student.gender,
-        allowed_programme: student.programme,
-        allowed_year: student.year,
         start_time: { [Op.lte]: now },
         end_time: { [Op.gte]: now }
       }
@@ -108,9 +139,27 @@ async function getHostelBlocks(req, res) {
       return res.status(403).json({ error: 'Hostel is unavailable or does not match eligibility criteria / active time window.' });
     }
 
+    // Check rules for student's programme and year
+    const rules = await AllocationRule.findAll({
+      where: {
+        hostel_id: hostelId,
+        programme: student.programme,
+        [Op.or]: [
+          { allowed_year: student.year },
+          { allowed_year: null }
+        ]
+      }
+    });
+
+    if (rules.length === 0) {
+      return res.status(403).json({ error: 'No block allocation rule matches your programme and year for this hostel.' });
+    }
+
+    const allowedBlockIds = [...new Set(rules.map(r => r.block_id))];
     const blocks = await Block.findAll({
       where: {
         hostel_id: hostelId,
+        block_id: { [Op.in]: allowedBlockIds },
         is_reserved: false
       },
       order: [['name', 'ASC']]
@@ -123,10 +172,11 @@ async function getHostelBlocks(req, res) {
   }
 }
 
-// Get Non-Reserved Floors of a Block
+// Get Non-Reserved Floors of a Block within Student's Allowed Floor Range
 async function getBlockFloors(req, res) {
   try {
     const { blockId } = req.params;
+    const student = req.student;
 
     const block = await Block.findOne({
       where: { block_id: blockId, is_reserved: false }
@@ -136,11 +186,32 @@ async function getBlockFloors(req, res) {
       return res.status(404).json({ error: 'Block is reserved or not found.' });
     }
 
-    const floors = await Floor.findAll({
+    // Check floor range rules for student's programme and year
+    const rules = await AllocationRule.findAll({
       where: {
         block_id: blockId,
-        is_reserved: false
-      },
+        programme: student.programme,
+        [Op.or]: [
+          { allowed_year: student.year },
+          { allowed_year: null }
+        ]
+      }
+    });
+
+    let floorWhere = {
+      block_id: blockId,
+      is_reserved: false
+    };
+
+    if (rules.length > 0) {
+      const rangeConditions = rules.map(r => ({
+        floor_number: { [Op.between]: [r.floor_start, r.floor_end] }
+      }));
+      floorWhere[Op.or] = rangeConditions;
+    }
+
+    const floors = await Floor.findAll({
+      where: floorWhere,
       order: [['floor_number', 'ASC']]
     });
 
@@ -183,6 +254,10 @@ async function getFloorRooms(req, res) {
 async function downloadAllocationPDF(req, res) {
   try {
     const studentRoll = req.student.roll_number;
+
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
 
     // Check if current version exists in PDFHistory
     let latestPdf = await PDFHistory.findOne({

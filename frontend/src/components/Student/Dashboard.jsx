@@ -1,6 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import api from '../../api/axios';
+import { 
+  getDashboard, 
+  getBlocks, 
+  getFloors, 
+  getRooms, 
+  bookRoom, 
+  pairRoom 
+} from '../../api/student';
 import CascadingDropdown from './CascadingDropdown';
 import RoomGrid from './RoomGrid';
 import BookingModal from './BookingModal';
@@ -35,7 +42,7 @@ const Dashboard = () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await api.get('/student/dashboard');
+      const res = await getDashboard();
       setDashboardData(res.data);
       if (res.data.student) {
         updateUser(res.data.student);
@@ -62,11 +69,12 @@ const Dashboard = () => {
     setBlocks([]);
     setFloors([]);
     setRooms([]);
+    setError(null);
 
     if (!hostelId) return;
 
     try {
-      const res = await api.get(`/student/blocks/${hostelId}`);
+      const res = await getBlocks(hostelId);
       setBlocks(res.data.blocks || []);
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to load blocks for selected hostel.');
@@ -79,11 +87,12 @@ const Dashboard = () => {
     setSelectedFloor('');
     setFloors([]);
     setRooms([]);
+    setError(null);
 
     if (!blockId) return;
 
     try {
-      const res = await api.get(`/student/floors/${blockId}`);
+      const res = await getFloors(blockId);
       setFloors(res.data.floors || []);
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to load floors for selected block.');
@@ -94,11 +103,12 @@ const Dashboard = () => {
   const handleSelectFloor = async (floorId) => {
     setSelectedFloor(floorId);
     setRooms([]);
+    setError(null);
 
     if (!floorId) return;
 
     try {
-      const res = await api.get(`/student/rooms/${floorId}`);
+      const res = await getRooms(floorId);
       setRooms(res.data.rooms || []);
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to load rooms for selected floor.');
@@ -113,6 +123,7 @@ const Dashboard = () => {
     setBlocks([]);
     setFloors([]);
     setRooms([]);
+    setError(null);
   };
 
   // Handle Room Click from Grid
@@ -133,7 +144,7 @@ const Dashboard = () => {
   const handleConfirmPrimaryBooking = async () => {
     if (!selectedRoomForBooking) return;
     try {
-      const res = await api.post(`/student/rooms/${selectedRoomForBooking.room_id}/book`);
+      const res = await bookRoom(selectedRoomForBooking.room_id);
       setBookingResult(res.data);
       // Refresh room list
       if (selectedFloor) handleSelectFloor(selectedFloor);
@@ -146,7 +157,7 @@ const Dashboard = () => {
   const handleSubmitPairCode = async (code) => {
     if (!selectedRoomForPairing) return;
     try {
-      const res = await api.post(`/student/rooms/${selectedRoomForPairing.room_id}/pair`, { code });
+      await pairRoom(selectedRoomForPairing.room_id, code);
       setSelectedRoomForPairing(null);
       // Refresh dashboard to trigger PDF redirect
       await fetchDashboard();
@@ -168,7 +179,7 @@ const Dashboard = () => {
 
   // Redirect to PDFView if student booking status is Locked
   if (dashboardData?.redirectToPdf || user?.booking_status === 'Locked') {
-    return <PDFView student={user} onLogout={logout} />;
+    return <PDFView student={user} onLogout={logout} forceRefresh={true} />;
   }
 
   return (
@@ -216,13 +227,24 @@ const Dashboard = () => {
             </div>
           </div>
 
-          <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 flex items-center gap-3">
-            <CheckCircle className="w-5 h-5 text-emerald-600 shrink-0" />
-            <div className="text-xs text-emerald-900">
-              <span className="font-bold block">Eligibility Verification Passed</span>
-              Matching active hostel time windows & program constraints.
+          {/* DYNAMIC ELIGIBILITY BANNER */}
+          {hostels.length > 0 ? (
+            <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 flex items-center gap-3">
+              <CheckCircle className="w-5 h-5 text-emerald-600 shrink-0" />
+              <div className="text-xs text-emerald-900">
+                <span className="font-bold block">Eligibility Verification Passed</span>
+                <span>Matching active hostel time windows & program constraints.</span>
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-center gap-3">
+              <ShieldAlert className="w-5 h-5 text-amber-600 shrink-0" />
+              <div className="text-xs text-amber-900">
+                <span className="font-bold block">No Eligible Hostels Found</span>
+                <span>You do not match any active hostel eligibility requirements.</span>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Global Error Banner */}

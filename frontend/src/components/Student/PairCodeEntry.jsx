@@ -1,11 +1,17 @@
-import React, { useState } from 'react';
-import api from '../../api/axios';
+import React, { useState, useEffect } from 'react';
+import { pairByCode } from '../../api/student';
 import { KeyRound, ArrowRight, Loader2, AlertCircle } from 'lucide-react';
 
 const PairCodeEntry = ({ onPairSuccess }) => {
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  // Clear stale error state when component mounts
+  useEffect(() => {
+    setError('');
+    setLoading(false);
+  }, []);
 
   const handleChange = (e) => {
     const val = e.target.value.replace(/[^0-9]/g, '');
@@ -26,7 +32,7 @@ const PairCodeEntry = ({ onPairSuccess }) => {
     setError('');
 
     try {
-      await api.post('/student/pair-by-code', { code });
+      await pairByCode(code);
       setCode('');
       if (onPairSuccess) {
         await onPairSuccess();

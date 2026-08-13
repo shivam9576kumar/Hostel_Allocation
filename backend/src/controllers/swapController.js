@@ -374,35 +374,76 @@ async function executeSwapInternal(swapRequest) {
     const sourceRoomId = swapRequest.source_room_id;
     const targetRoomId = swapRequest.target_room_id;
     const swapType = swapRequest.swap_type;
-    const consentsMap = parseConsents(swapRequest.consents);
-    const involvedRolls = Object.keys(consentsMap);
 
+    // 🔍 DEBUG: Log which rooms are involved
+    console.log(`🔄 Executing ${swapType} swap: Room ${sourceRoomId} ↔ Room ${targetRoomId}`);
+
+    // ✅ Fetch ALL students from BOTH rooms BEFORE any updates
+    const sourceStudents = await Student.findAll({
+      where: { booked_room_id: sourceRoomId },
+      transaction
+    });
+    const targetStudents = await Student.findAll({
+      where: { booked_room_id: targetRoomId },
+      transaction
+    });
+
+    console.log(`  - Source Room (${sourceRoomId}) occupants:`, sourceStudents.map(s => s.roll_number));
+    console.log(`  - Target Room (${targetRoomId}) occupants:`, targetStudents.map(s => s.roll_number));
+
+    // ✅ Collect ALL occupants from BOTH rooms (THIS IS THE CRITICAL FIX)
+    const allAffectedRolls = [
+      ...sourceStudents.map(s => s.roll_number),
+      ...targetStudents.map(s => s.roll_number)
+    ];
+    console.log(`  - All affected students (${allAffectedRolls.length}):`, allAffectedRolls);
+
+    // ✅ Execute the swap based on type
     if (swapType === 'full') {
-      const sourceStudents = await Student.findAll({ where: { booked_room_id: sourceRoomId }, transaction });
-      const targetStudents = await Student.findAll({ where: { booked_room_id: targetRoomId }, transaction });
-
+      // Full swap: move ALL students from both rooms
       for (const s of sourceStudents) {
         await s.update({ booked_room_id: targetRoomId }, { transaction });
-        await Booking.update({ room_id: targetRoomId }, { where: { student_roll: s.roll_number }, transaction });
+        await Booking.update(
+          { room_id: targetRoomId },
+          { where: { student_roll: s.roll_number }, transaction }
+        );
       }
       for (const s of targetStudents) {
         await s.update({ booked_room_id: sourceRoomId }, { transaction });
-        await Booking.update({ room_id: sourceRoomId }, { where: { student_roll: s.roll_number }, transaction });
+        await Booking.update(
+          { room_id: sourceRoomId },
+          { where: { student_roll: s.roll_number }, transaction }
+        );
       }
+      console.log(`✅ Full swap completed: all ${sourceStudents.length + targetStudents.length} students moved`);
     } else {
+      // Individual swap: ONLY two students move
       const initiator = await Student.findByPk(swapRequest.initiator_roll, { transaction });
       const targetStudent = await Student.findByPk(swapRequest.target_student_roll, { transaction });
 
+      console.log(`  - Initiator: ${initiator.roll_number} → Room ${targetRoomId}`);
+      console.log(`  - Target Student: ${targetStudent.roll_number} → Room ${sourceRoomId}`);
+
       await initiator.update({ booked_room_id: targetRoomId }, { transaction });
-      await Booking.update({ room_id: targetRoomId }, { where: { student_roll: initiator.roll_number }, transaction });
+      await Booking.update(
+        { room_id: targetRoomId },
+        { where: { student_roll: initiator.roll_number }, transaction }
+      );
 
       await targetStudent.update({ booked_room_id: sourceRoomId }, { transaction });
-      await Booking.update({ room_id: sourceRoomId }, { where: { student_roll: targetStudent.roll_number }, transaction });
+      await Booking.update(
+        { room_id: sourceRoomId },
+        { where: { student_roll: targetStudent.roll_number }, transaction }
+      );
+      console.log(`✅ Individual swap completed: 2 students moved, ${allAffectedRolls.length - 2} roommates updated`);
     }
 
-    // Regenerate PDFs for all affected students inside the transaction
-    const { oldPdfPaths, newPdfPaths } = await regenerateSwapPDFs(involvedRolls, transaction);
+    // 🔥 CRITICAL: Regenerate PDFs for ALL affected students (4 students)
+    // This ensures roommates also get updated PDFs with new roommate details
+    console.log(`📄 Regenerating PDFs for ${allAffectedRolls.length} students...`);
+    const { oldPdfPaths, newPdfPaths } = await regenerateSwapPDFs(allAffectedRolls, transaction);
 
+    // ✅ Update swap request with PDF paths
     await swapRequest.update({
       status: 'Executed',
       old_pdf_paths: oldPdfPaths,
@@ -410,10 +451,15 @@ async function executeSwapInternal(swapRequest) {
     }, { transaction });
 
     await transaction.commit();
+
+    console.log(`✅ Swap #${swapRequest.id} executed successfully!`);
+    console.log(`  - New PDFs generated for: ${Object.keys(newPdfPaths).join(', ')}`);
+
     return { oldPdfPaths, newPdfPaths };
+
   } catch (err) {
     await transaction.rollback();
-    console.error('Swap Execution Error:', err);
+    console.error('❌ Swap Execution Error:', err);
     throw err;
   }
 }

@@ -17,6 +17,7 @@ const {
   toggleBlockReservation,
   getFloors,
   createFloor,
+  bulkCreateFloors,
   deleteFloor,
   toggleFloorReservation,
   getRooms,
@@ -24,7 +25,13 @@ const {
   bulkCreateRooms,
   deleteRoom,
   toggleRoomReservation,
-  getStudents
+  getStudents,
+  getStudentCount,
+  getAllocationRules,
+  createAllocationRule,
+  updateAllocationRule,
+  deleteAllocationRule,
+  getHostelAllocationRules
 } = require('../controllers/adminController');
 
 const verifyAdmin = adminAuth;
@@ -69,6 +76,7 @@ router.use(adminAuth);
 
 // Student Roster Management
 router.post('/upload-students', upload.single('file'), uploadStudents);
+router.get('/students/count', getStudentCount);
 router.get('/students', getStudents);
 
 // Hostel Management
@@ -78,6 +86,13 @@ router.put('/hostels/:id', updateHostel);
 router.put('/hostels/:id/settings', updateHostel);
 router.delete('/hostels/:id', deleteHostel);
 router.post('/hostels/:id/clear', clearHostelData);
+router.get('/hostels/:hostelId/rules', getHostelAllocationRules);
+
+// Allocation Rules Management
+router.get('/allocation-rules', getAllocationRules);
+router.post('/allocation-rules', createAllocationRule);
+router.put('/allocation-rules/:ruleId', updateAllocationRule);
+router.delete('/allocation-rules/:ruleId', deleteAllocationRule);
 
 // Block Management
 router.get('/blocks', getBlocks);
@@ -88,6 +103,7 @@ router.put('/blocks/:id/reserve', toggleBlockReservation);
 // Floor Management
 router.get('/floors', getFloors);
 router.post('/floors', createFloor);
+router.post('/floors/bulk', bulkCreateFloors);
 router.delete('/floors/:id', deleteFloor);
 router.put('/floors/:id/reserve', toggleFloorReservation);
 

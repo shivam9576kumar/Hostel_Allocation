@@ -1,5 +1,5 @@
 const { parseAndInsertStudents } = require('../utils/csvParser');
-const { Hostel, Block, Floor, Room, Booking, Student, SwapRequest, sequelize } = require('../models');
+const { Hostel, Block, Floor, Room, Booking, Student, SwapRequest, AllocationRule, sequelize } = require('../models');
 const { Op } = require('sequelize');
 
 // 1. Upload Students Roster
@@ -25,12 +25,10 @@ async function uploadStudents(req, res) {
 // 2. List Hostels
 async function getHostels(req, res) {
   try {
-    const { gender, programme, year } = req.query;
+    const { gender } = req.query;
     const where = {};
 
     if (gender && gender !== 'ALL') where.allowed_gender = gender;
-    if (programme && programme !== 'ALL') where.allowed_programme = programme;
-    if (year && year !== 'ALL') where.allowed_year = parseInt(year, 10);
 
     const hostels = await Hostel.findAll({
       where,
@@ -58,18 +56,20 @@ async function getHostels(req, res) {
 // 3. Create Hostel
 async function createHostel(req, res) {
   try {
-    const { name, allowed_gender, allowed_programme, allowed_year, start_time, end_time } = req.body;
-    if (!name || !allowed_gender || !allowed_programme || !allowed_year || !start_time || !end_time) {
-      return res.status(400).json({ error: 'All hostel details, eligibility, and time window parameters are required.' });
+    const { name, allowed_gender, gender, start_time, startTime, end_time, endTime } = req.body;
+    const targetGender = allowed_gender || gender;
+    const targetStartTime = start_time || startTime;
+    const targetEndTime = end_time || endTime;
+
+    if (!name || !targetGender || !targetStartTime || !targetEndTime) {
+      return res.status(400).json({ error: 'Hostel name, gender, and time window parameters are required.' });
     }
 
     const hostel = await Hostel.create({
       name,
-      allowed_gender,
-      allowed_programme,
-      allowed_year: parseInt(allowed_year, 10),
-      start_time: new Date(start_time),
-      end_time: new Date(end_time)
+      allowed_gender: targetGender,
+      start_time: new Date(targetStartTime),
+      end_time: new Date(targetEndTime)
     });
 
     return res.status(201).json({ message: 'Hostel created successfully.', hostel });
@@ -83,7 +83,10 @@ async function createHostel(req, res) {
 async function updateHostel(req, res) {
   try {
     const { id } = req.params;
-    const { name, allowed_gender, allowed_programme, allowed_year, start_time, end_time } = req.body;
+    const { name, allowed_gender, gender, start_time, startTime, end_time, endTime } = req.body;
+    const targetGender = allowed_gender || gender;
+    const targetStartTime = start_time || startTime;
+    const targetEndTime = end_time || endTime;
 
     const hostel = await Hostel.findByPk(id);
     if (!hostel) {
@@ -92,11 +95,9 @@ async function updateHostel(req, res) {
 
     await hostel.update({
       name: name || hostel.name,
-      allowed_gender: allowed_gender || hostel.allowed_gender,
-      allowed_programme: allowed_programme || hostel.allowed_programme,
-      allowed_year: allowed_year !== undefined ? parseInt(allowed_year, 10) : hostel.allowed_year,
-      start_time: start_time ? new Date(start_time) : hostel.start_time,
-      end_time: end_time ? new Date(end_time) : hostel.end_time
+      allowed_gender: targetGender || hostel.allowed_gender,
+      start_time: targetStartTime ? new Date(targetStartTime) : hostel.start_time,
+      end_time: targetEndTime ? new Date(targetEndTime) : hostel.end_time
     });
 
     return res.json({ message: 'Hostel updated successfully.', hostel });
@@ -517,11 +518,12 @@ async function getStudents(req, res) {
     if (year && year !== 'ALL') where.year = parseInt(year, 10);
     if (status && status !== 'ALL') where.booking_status = status;
 
-    if (search) {
+    if (search && search.trim()) {
+      const searchOp = sequelize.getDialect() === 'postgres' ? Op.iLike : Op.like;
       where[Op.or] = [
-        { full_name: { [Op.iLike]: `%${search}%` } },
-        { roll_number: { [Op.iLike]: `%${search}%` } },
-        { email: { [Op.iLike]: `%${search}%` } }
+        { full_name: { [searchOp]: `%${search.trim()}%` } },
+        { roll_number: { [searchOp]: `%${search.trim()}%` } },
+        { email: { [searchOp]: `%${search.trim()}%` } }
       ];
     }
 
@@ -627,6 +629,318 @@ async function bulkCreateRooms(req, res) {
   }
 }
 
+async function getStudentCount(req, res) {
+  try {
+    const { status, gender, programme, year, search } = req.query;
+
+    const where = {};
+
+    if (status && status !== 'ALL') {
+      where.booking_status = status;
+    }
+    if (gender && gender !== 'ALL') {
+      where.gender = gender;
+    }
+    if (programme && programme !== 'ALL') {
+      where.programme = programme;
+    }
+    if (year && year !== 'ALL') {
+      where.year = parseInt(year, 10);
+    }
+    if (search && search.trim()) {
+      const searchOp = sequelize.getDialect() === 'postgres' ? Op.iLike : Op.like;
+      where[Op.or] = [
+        { roll_number: { [searchOp]: `%${search.trim()}%` } },
+        { full_name: { [searchOp]: `%${search.trim()}%` } },
+        { email: { [searchOp]: `%${search.trim()}%` } }
+      ];
+    }
+
+    const totalCount = await Student.count({ where });
+
+    const programmeBreakdown = await Student.findAll({
+      attributes: [
+        'programme',
+        'year',
+        [sequelize.fn('COUNT', sequelize.col('roll_number')), 'count']
+      ],
+      where,
+      group: ['programme', 'year'],
+      order: [
+        ['programme', 'ASC'],
+        ['year', 'ASC']
+      ],
+      raw: true
+    });
+
+    const genderBreakdown = await Student.findAll({
+      attributes: [
+        'gender',
+        [sequelize.fn('COUNT', sequelize.col('roll_number')), 'count']
+      ],
+      where,
+      group: ['gender'],
+      raw: true
+    });
+
+    const statusBreakdown = await Student.findAll({
+      attributes: [
+        'booking_status',
+        [sequelize.fn('COUNT', sequelize.col('roll_number')), 'count']
+      ],
+      where,
+      group: ['booking_status'],
+      raw: true
+    });
+
+    return res.json({
+      success: true,
+      data: {
+        total: totalCount,
+        programmeBreakdown,
+        genderBreakdown,
+        statusBreakdown
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error fetching student count:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to fetch student count',
+      details: error.message
+    });
+  }
+}
+
+// Bulk Create Floors (Range-Based)
+async function bulkCreateFloors(req, res) {
+  const { blockId, block_id, floorStart, floorEnd } = req.body;
+  const targetBlockId = blockId || block_id;
+  const transaction = await sequelize.transaction();
+
+  try {
+    // Validation
+    if (!targetBlockId || floorStart === undefined || floorEnd === undefined) {
+      await transaction.rollback();
+      return res.status(400).json({ error: 'Missing required fields: blockId, floorStart, floorEnd' });
+    }
+
+    const start = parseInt(floorStart, 10);
+    const end = parseInt(floorEnd, 10);
+
+    if (isNaN(start) || isNaN(end) || start > end) {
+      await transaction.rollback();
+      return res.status(400).json({ error: 'Start floor must be less than or equal to end floor' });
+    }
+
+    if (start < 0 || end < 0) {
+      await transaction.rollback();
+      return res.status(400).json({ error: 'Floor numbers cannot be negative' });
+    }
+
+    // Check if block exists
+    const block = await Block.findByPk(targetBlockId, { transaction });
+    if (!block) {
+      await transaction.rollback();
+      return res.status(404).json({ error: 'Block not found' });
+    }
+
+    const createdFloors = [];
+    const skippedFloors = [];
+
+    for (let num = start; num <= end; num++) {
+      // Check if floor already exists in this block
+      const existing = await Floor.findOne({
+        where: { block_id: targetBlockId, floor_number: num },
+        transaction
+      });
+
+      if (existing) {
+        skippedFloors.push(num);
+        continue;
+      }
+
+      const floor = await Floor.create({
+        block_id: targetBlockId,
+        floor_number: num,
+        is_reserved: false
+      }, { transaction });
+
+      createdFloors.push(floor);
+    }
+
+    await transaction.commit();
+
+    return res.status(201).json({
+      message: `Successfully created ${createdFloors.length} floor(s)`,
+      createdCount: createdFloors.length,
+      createdFloors,
+      skippedFloors,
+      skippedCount: skippedFloors.length
+    });
+
+  } catch (error) {
+    await transaction.rollback();
+    console.error('❌ Bulk floor creation error:', error);
+    return res.status(500).json({
+      error: 'Failed to create floors',
+      details: error.message
+    });
+  }
+}
+
+// 12. Allocation Rules Management
+async function getAllocationRules(req, res) {
+  try {
+    const { hostelId, programme, year } = req.query;
+    const where = {};
+    if (hostelId && hostelId !== 'ALL') where.hostel_id = parseInt(hostelId, 10);
+    if (programme && programme !== 'ALL') where.programme = programme;
+    if (year && year !== 'ALL') {
+      if (year === 'NULL') where.allowed_year = null;
+      else where.allowed_year = parseInt(year, 10);
+    }
+
+    const rules = await AllocationRule.findAll({
+      where,
+      include: [
+        { model: Hostel, attributes: ['hostel_id', 'name', 'allowed_gender'] },
+        { model: Block, attributes: ['block_id', 'name', 'is_reserved'] }
+      ],
+      order: [['hostel_id', 'ASC'], ['programme', 'ASC'], ['allowed_year', 'ASC'], ['block_id', 'ASC']]
+    });
+
+    return res.json({ success: true, rules });
+  } catch (error) {
+    console.error('Error fetching allocation rules:', error);
+    return res.status(500).json({ error: 'Failed to fetch allocation rules', details: error.message });
+  }
+}
+
+async function createAllocationRule(req, res) {
+  try {
+    const { hostel_id, hostelId, programme, allowed_year, allowedYear, year, block_id, blockId, floor_start, floorStart, floor_end, floorEnd } = req.body;
+    const targetHostelId = hostel_id || hostelId;
+    const targetBlockId = block_id || blockId;
+    const start = floor_start !== undefined ? parseInt(floor_start, 10) : (floorStart !== undefined ? parseInt(floorStart, 10) : 0);
+    const end = floor_end !== undefined ? parseInt(floor_end, 10) : (floorEnd !== undefined ? parseInt(floorEnd, 10) : 999);
+
+    const rawYear = allowed_year !== undefined ? allowed_year : (allowedYear !== undefined ? allowedYear : year);
+    const parsedYear = (rawYear === null || rawYear === undefined || rawYear === '' || rawYear === 'ALL') ? null : parseInt(rawYear, 10);
+
+    if (!targetHostelId || !programme || !targetBlockId) {
+      return res.status(400).json({ error: 'Missing required fields: hostel_id, programme, block_id' });
+    }
+
+    if (isNaN(start) || isNaN(end) || start > end || start < 0) {
+      return res.status(400).json({ error: 'Valid floor range (start <= end, start >= 0) is required' });
+    }
+
+    const hostel = await Hostel.findByPk(targetHostelId);
+    if (!hostel) return res.status(404).json({ error: 'Hostel not found' });
+
+    const block = await Block.findOne({ where: { block_id: targetBlockId, hostel_id: targetHostelId } });
+    if (!block) return res.status(404).json({ error: 'Block does not belong to the selected hostel' });
+
+    const rule = await AllocationRule.create({
+      hostel_id: targetHostelId,
+      programme,
+      allowed_year: parsedYear,
+      block_id: targetBlockId,
+      floor_start: start,
+      floor_end: end
+    });
+
+    const fullRule = await AllocationRule.findByPk(rule.rule_id, {
+      include: [
+        { model: Hostel, attributes: ['hostel_id', 'name', 'allowed_gender'] },
+        { model: Block, attributes: ['block_id', 'name', 'is_reserved'] }
+      ]
+    });
+
+    return res.status(201).json({ message: 'Allocation rule created successfully', rule: fullRule });
+  } catch (error) {
+    console.error('Error creating allocation rule:', error);
+    return res.status(500).json({ error: 'Failed to create allocation rule', details: error.message });
+  }
+}
+
+async function updateAllocationRule(req, res) {
+  try {
+    const { ruleId } = req.params;
+    const { programme, allowed_year, allowedYear, year, block_id, blockId, floor_start, floorStart, floor_end, floorEnd } = req.body;
+
+    const rule = await AllocationRule.findByPk(ruleId);
+    if (!rule) return res.status(404).json({ error: 'Allocation rule not found' });
+
+    if (programme) rule.programme = programme;
+    if (block_id || blockId) rule.block_id = block_id || blockId;
+
+    const rawYear = allowed_year !== undefined ? allowed_year : (allowedYear !== undefined ? allowedYear : year);
+    if (rawYear !== undefined) {
+      rule.allowed_year = (rawYear === null || rawYear === '' || rawYear === 'ALL') ? null : parseInt(rawYear, 10);
+    }
+
+    if (floor_start !== undefined || floorStart !== undefined) {
+      rule.floor_start = parseInt(floor_start !== undefined ? floor_start : floorStart, 10);
+    }
+    if (floor_end !== undefined || floorEnd !== undefined) {
+      rule.floor_end = parseInt(floor_end !== undefined ? floor_end : floorEnd, 10);
+    }
+
+    if (rule.floor_start > rule.floor_end || rule.floor_start < 0) {
+      return res.status(400).json({ error: 'Start floor must be less than or equal to end floor, and >= 0' });
+    }
+
+    await rule.save();
+
+    const fullRule = await AllocationRule.findByPk(rule.rule_id, {
+      include: [
+        { model: Hostel, attributes: ['hostel_id', 'name', 'allowed_gender'] },
+        { model: Block, attributes: ['block_id', 'name', 'is_reserved'] }
+      ]
+    });
+
+    return res.json({ message: 'Allocation rule updated successfully', rule: fullRule });
+  } catch (error) {
+    console.error('Error updating allocation rule:', error);
+    return res.status(500).json({ error: 'Failed to update allocation rule', details: error.message });
+  }
+}
+
+async function deleteAllocationRule(req, res) {
+  try {
+    const { ruleId } = req.params;
+    const rule = await AllocationRule.findByPk(ruleId);
+    if (!rule) return res.status(404).json({ error: 'Allocation rule not found' });
+
+    await rule.destroy();
+    return res.json({ message: 'Allocation rule deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting allocation rule:', error);
+    return res.status(500).json({ error: 'Failed to delete allocation rule', details: error.message });
+  }
+}
+
+async function getHostelAllocationRules(req, res) {
+  try {
+    const { hostelId } = req.params;
+    const rules = await AllocationRule.findAll({
+      where: { hostel_id: hostelId },
+      include: [
+        { model: Hostel, attributes: ['hostel_id', 'name', 'allowed_gender'] },
+        { model: Block, attributes: ['block_id', 'name', 'is_reserved'] }
+      ],
+      order: [['programme', 'ASC'], ['block_id', 'ASC']]
+    });
+    return res.json({ success: true, rules });
+  } catch (error) {
+    console.error('Error fetching hostel allocation rules:', error);
+    return res.status(500).json({ error: 'Failed to fetch hostel allocation rules' });
+  }
+}
+
 module.exports = {
   uploadStudents,
   getHostels,
@@ -640,6 +954,7 @@ module.exports = {
   toggleBlockReservation,
   getFloors,
   createFloor,
+  bulkCreateFloors,
   deleteFloor,
   toggleFloorReservation,
   getRooms,
@@ -647,6 +962,12 @@ module.exports = {
   bulkCreateRooms,
   deleteRoom,
   toggleRoomReservation,
-  getStudents
+  getStudents,
+  getStudentCount,
+  getAllocationRules,
+  createAllocationRule,
+  updateAllocationRule,
+  deleteAllocationRule,
+  getHostelAllocationRules
 };
 

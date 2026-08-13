@@ -1,20 +1,22 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import HostelManager from './HostelManager';
+import AllocationRulesManager from './AllocationRulesManager';
 import BlockManager from './BlockManager';
 import FloorManager from './FloorManager';
 import RoomManager from './RoomManager';
 import StudentUpload from './StudentUpload';
 import AdminSwapToggle from './AdminSwapToggle';
 import AdminSwapRequests from './AdminSwapRequests';
-import { Building2, Layers, Grid, DoorClosed, Upload, LogOut, ShieldCheck, ArrowLeftRight } from 'lucide-react';
+import { Building2, Layers, Grid, DoorClosed, Upload, LogOut, ShieldCheck, ArrowLeftRight, Settings } from 'lucide-react';
 
 const AdminDashboard = () => {
   const { user, logout } = useAuth();
   const [activeTab, setActiveTab] = useState('hostels');
 
   const tabs = [
-    { id: 'hostels', label: 'Hostels & Eligibility', icon: Building2 },
+    { id: 'hostels', label: 'Hostels', icon: Building2 },
+    { id: 'rules', label: 'Allocation Rules', icon: ShieldCheck },
     { id: 'blocks', label: 'Blocks', icon: Layers },
     { id: 'floors', label: 'Floors', icon: Grid },
     { id: 'rooms', label: 'Rooms Grid', icon: DoorClosed },
@@ -80,6 +82,7 @@ const AdminDashboard = () => {
 
         {/* Tab View Content */}
         {activeTab === 'hostels' && <HostelManager />}
+        {activeTab === 'rules' && <AllocationRulesManager />}
         {activeTab === 'blocks' && <BlockManager />}
         {activeTab === 'floors' && <FloorManager />}
         {activeTab === 'rooms' && <RoomManager />}

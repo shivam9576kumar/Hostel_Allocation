@@ -10,14 +10,10 @@ const HostelManager = () => {
 
   // Filters (with "ALL" option)
   const [filterGender, setFilterGender] = useState('ALL');
-  const [filterProgramme, setFilterProgramme] = useState('ALL');
-  const [filterYear, setFilterYear] = useState('ALL');
 
   // Form State for New Hostel
   const [newHostelName, setNewHostelName] = useState('');
   const [newGender, setNewGender] = useState('Male');
-  const [newProgramme, setNewProgramme] = useState('B.Tech');
-  const [newYear, setNewYear] = useState(3);
 
   const nowISO = new Date().toISOString().slice(0, 16);
   const futureISO = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 16);
@@ -33,9 +29,7 @@ const HostelManager = () => {
     try {
       const res = await api.get('/admin/hostels', {
         params: {
-          gender: filterGender,
-          programme: filterProgramme,
-          year: filterYear
+          gender: filterGender
         }
       });
       setHostels(res.data.hostels || []);
@@ -48,7 +42,7 @@ const HostelManager = () => {
 
   useEffect(() => {
     fetchHostels();
-  }, [filterGender, filterProgramme, filterYear]);
+  }, [filterGender]);
 
   const handleCreateHostel = async (e) => {
     e.preventDefault();
@@ -58,8 +52,6 @@ const HostelManager = () => {
       await api.post('/admin/hostels', {
         name: newHostelName,
         allowed_gender: newGender,
-        allowed_programme: newProgramme,
-        allowed_year: parseInt(newYear, 10),
         start_time: new Date(newStartTime).toISOString(),
         end_time: new Date(newEndTime).toISOString()
       });
@@ -105,12 +97,12 @@ const HostelManager = () => {
           Create New Hostel Entry
         </h2>
 
-        <form onSubmit={handleCreateHostel} className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
+        <form onSubmit={handleCreateHostel} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 items-end">
           <div className="lg:col-span-2">
             <label className="block text-xs font-semibold text-slate-600 uppercase mb-1">Hostel Name</label>
             <input
               type="text"
-              placeholder="e.g. Kumaon Hostel"
+              placeholder="e.g. Nilgiri Hostel"
               value={newHostelName}
               onChange={(e) => setNewHostelName(e.target.value)}
               className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-amber-500 focus:bg-white"
@@ -131,36 +123,31 @@ const HostelManager = () => {
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-600 uppercase mb-1">Programme</label>
-            <select
-              value={newProgramme}
-              onChange={(e) => setNewProgramme(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-amber-500"
-            >
-              <option value="B.Tech">B.Tech</option>
-              <option value="M.Tech">M.Tech</option>
-              <option value="M.Sc">M.Sc</option>
-              <option value="PhD">PhD</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-slate-600 uppercase mb-1">Year</label>
+            <label className="block text-xs font-semibold text-slate-600 uppercase mb-1">Start Time</label>
             <input
-              type="number"
-              min={1}
-              max={5}
-              value={newYear}
-              onChange={(e) => setNewYear(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-amber-500"
+              type="datetime-local"
+              value={newStartTime}
+              onChange={(e) => setNewStartTime(e.target.value)}
+              className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs focus:ring-2 focus:ring-amber-500"
               required
             />
           </div>
 
-          <div className="flex items-end">
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 uppercase mb-1">End Time</label>
+            <input
+              type="datetime-local"
+              value={newEndTime}
+              onChange={(e) => setNewEndTime(e.target.value)}
+              className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs focus:ring-2 focus:ring-amber-500"
+              required
+            />
+          </div>
+
+          <div className="lg:col-span-5 flex justify-end pt-2">
             <button
               type="submit"
-              className="w-full py-2 px-4 bg-slate-900 hover:bg-slate-800 text-white font-semibold rounded-xl transition text-sm flex items-center justify-center gap-1.5"
+              className="py-2.5 px-6 bg-slate-900 hover:bg-slate-800 text-white font-semibold rounded-xl transition text-sm flex items-center gap-1.5"
             >
               <Plus className="w-4 h-4" />
               Add Hostel
@@ -177,14 +164,14 @@ const HostelManager = () => {
               <Building2 className="w-5 h-5 text-amber-500" />
               Hostels Directory
             </h2>
-            <p className="text-xs text-slate-500">Manage time windows, eligibility criteria, or clear hostel hierarchy data.</p>
+            <p className="text-xs text-slate-500">Manage time windows, gender criteria, or clear hostel hierarchy data.</p>
           </div>
 
-          {/* Admin Filter Controls (with "Select All") */}
-          <div className="flex flex-wrap items-center gap-3">
+          {/* Admin Filter Controls */}
+          <div className="flex items-center gap-3">
             <div className="flex items-center gap-1 text-xs font-semibold text-slate-500">
               <Filter className="w-4 h-4 text-amber-500" />
-              <span>Filters:</span>
+              <span>Filter Gender:</span>
             </div>
 
             <select
@@ -192,34 +179,9 @@ const HostelManager = () => {
               onChange={(e) => setFilterGender(e.target.value)}
               className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-1.5 text-xs text-slate-800 font-medium"
             >
-              <option value="ALL">All Genders (Select All)</option>
+              <option value="ALL">All Genders</option>
               <option value="Male">Male</option>
               <option value="Female">Female</option>
-            </select>
-
-            <select
-              value={filterProgramme}
-              onChange={(e) => setFilterProgramme(e.target.value)}
-              className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-1.5 text-xs text-slate-800 font-medium"
-            >
-              <option value="ALL">All Programmes (Select All)</option>
-              <option value="B.Tech">B.Tech</option>
-              <option value="M.Tech">M.Tech</option>
-              <option value="M.Sc">M.Sc</option>
-              <option value="PhD">PhD</option>
-            </select>
-
-            <select
-              value={filterYear}
-              onChange={(e) => setFilterYear(e.target.value)}
-              className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-1.5 text-xs text-slate-800 font-medium"
-            >
-              <option value="ALL">All Years (Select All)</option>
-              <option value="1">Year 1</option>
-              <option value="2">Year 2</option>
-              <option value="3">Year 3</option>
-              <option value="4">Year 4</option>
-              <option value="5">Year 5</option>
             </select>
           </div>
         </div>
@@ -231,7 +193,7 @@ const HostelManager = () => {
               <tr className="bg-slate-50 text-slate-600 text-xs uppercase font-semibold border-b border-slate-200">
                 <th className="p-3.5">ID</th>
                 <th className="p-3.5">Hostel Name</th>
-                <th className="p-3.5">Allowed Criteria</th>
+                <th className="p-3.5">Gender</th>
                 <th className="p-3.5">Active Time Window</th>
                 <th className="p-3.5">Blocks</th>
                 <th className="p-3.5 text-right">Actions</th>
@@ -247,8 +209,10 @@ const HostelManager = () => {
                     <td className="p-3.5 font-bold text-slate-400">#{h.hostel_id}</td>
                     <td className="p-3.5 font-bold text-slate-900">{h.name}</td>
                     <td className="p-3.5">
-                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-slate-100 border border-slate-200 text-xs font-medium text-slate-700">
-                        {h.allowed_gender} | {h.allowed_programme} Yr {h.allowed_year}
+                      <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold ${
+                        h.allowed_gender === 'Female' ? 'bg-pink-50 text-pink-700 border border-pink-200' : 'bg-blue-50 text-blue-700 border border-blue-200'
+                      }`}>
+                        {h.allowed_gender}
                       </span>
                     </td>
                     <td className="p-3.5 text-xs">
@@ -294,7 +258,7 @@ const HostelManager = () => {
               {hostels.length === 0 && (
                 <tr>
                   <td colSpan={6} className="p-8 text-center text-slate-400 text-sm">
-                    No hostels found matching the specified filters.
+                    No hostels found matching the specified filter.
                   </td>
                 </tr>
               )}

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import api from '../../api/axios';
 import { Upload, FileSpreadsheet, CheckCircle, AlertTriangle, Search, Filter, RefreshCw, UserCheck } from 'lucide-react';
+import StudentDashboard from './StudentDashboard';
 
 const StudentUpload = () => {
   const [file, setFile] = useState(null);
@@ -16,6 +17,14 @@ const StudentUpload = () => {
   const [filterProgramme, setFilterProgramme] = useState('ALL');
   const [filterYear, setFilterYear] = useState('ALL');
   const [filterStatus, setFilterStatus] = useState('ALL');
+
+  const currentFilters = {
+    search: searchTerm,
+    gender: filterGender,
+    programme: filterProgramme,
+    year: filterYear,
+    status: filterStatus
+  };
 
   const fetchStudents = async () => {
     setLoadingStudents(true);
@@ -151,6 +160,9 @@ const StudentUpload = () => {
           </div>
         )}
       </div>
+
+      {/* Dynamic Student Analytics Dashboard */}
+      <StudentDashboard filters={currentFilters} />
 
       {/* Student Directory Table with Filters & Search */}
       <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200">
