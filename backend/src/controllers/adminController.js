@@ -107,19 +107,18 @@ async function updateHostel(req, res) {
   }
 }
 
-// 5. Delete Hostel (with swap_requests cleanup)
+// 5. Delete Hostel (with student reset)
 async function deleteHostel(req, res) {
   const { id } = req.params;
   const transaction = await sequelize.transaction();
   try {
-    // 1. Verify the hostel exists
     const hostel = await Hostel.findByPk(id, { transaction });
     if (!hostel) {
       await transaction.rollback();
       return res.status(404).json({ error: 'Hostel not found' });
     }
 
-    // 2. Find all rooms belonging to this hostel (through blocks → floors)
+    // 1. Find all rooms belonging to this hostel
     const rooms = await Room.findAll({
       attributes: ['room_id'],
       include: [{
@@ -136,9 +135,24 @@ async function deleteHostel(req, res) {
 
     const roomIds = rooms.map(r => r.room_id);
 
-    // 3. Delete all swap_requests referencing these rooms (source or target)
+    // 2. ✅ Reset students BEFORE deleting rooms
     if (roomIds.length > 0) {
-      const deletedSwaps = await SwapRequest.destroy({
+      const updatedStudents = await Student.update(
+        { 
+          booked_room_id: null, 
+          booking_status: 'Pending' 
+        },
+        { 
+          where: { booked_room_id: roomIds },
+          transaction 
+        }
+      );
+      console.log(`🔄 Reset ${updatedStudents[0]} student(s) before deleting hostel #${id}`);
+    }
+
+    // 3. Delete all swap_requests referencing these rooms
+    if (roomIds.length > 0) {
+      await SwapRequest.destroy({
         where: {
           [Op.or]: [
             { source_room_id: roomIds },
@@ -147,23 +161,22 @@ async function deleteHostel(req, res) {
         },
         transaction
       });
-      console.log(`🗑️ Deleted ${deletedSwaps} swap request(s) referencing rooms in hostel #${id}`);
     }
 
-    // 4. Now delete the hostel – cascades to blocks → floors → rooms → bookings
+    // 4. Delete the hostel (cascades to blocks → floors → rooms → bookings)
     await hostel.destroy({ transaction });
 
     await transaction.commit();
     return res.json({ 
-      message: `Hostel "${hostel.name}" (ID: ${id}) deleted successfully`,
-      deletedSwapRequests: roomIds.length > 0 ? 'All related swap requests removed' : 'None'
+      message: `Hostel "${hostel.name}" deleted successfully. All students have been reset.`,
+      studentsReset: roomIds.length > 0 ? 'All assigned students reset to Pending' : 'No students affected'
     });
 
   } catch (error) {
     await transaction.rollback();
     console.error('❌ Delete hostel error:', error);
     return res.status(500).json({ 
-      error: 'Failed to delete hostel. Please try again.',
+      error: 'Failed to delete hostel',
       details: error.message 
     });
   }
@@ -348,16 +361,59 @@ async function createBlock(req, res) {
 }
 
 async function deleteBlock(req, res) {
+  const { id } = req.params;
+  const transaction = await sequelize.transaction();
   try {
-    const { id } = req.params;
-    const block = await Block.findByPk(id);
-    if (!block) return res.status(404).json({ error: 'Block not found.' });
+    const block = await Block.findByPk(id, { transaction });
+    if (!block) {
+      await transaction.rollback();
+      return res.status(404).json({ error: 'Block not found' });
+    }
 
-    await block.destroy();
-    return res.json({ message: `Block #${id} deleted.` });
-  } catch (err) {
-    console.error('Error in deleteBlock:', err);
-    return res.status(500).json({ error: 'Failed to delete block.' });
+    // 1. Find all rooms in this block
+    const rooms = await Room.findAll({
+      attributes: ['room_id'],
+      include: [{
+        model: Floor,
+        required: true,
+        where: { block_id: id }
+      }],
+      transaction
+    });
+
+    const roomIds = rooms.map(r => r.room_id);
+
+    // 2. ✅ Reset students assigned to these rooms
+    if (roomIds.length > 0) {
+      await Student.update(
+        { booked_room_id: null, booking_status: 'Pending' },
+        { where: { booked_room_id: roomIds }, transaction }
+      );
+    }
+
+    // 3. Delete swap_requests referencing these rooms
+    if (roomIds.length > 0) {
+      await SwapRequest.destroy({
+        where: {
+          [Op.or]: [
+            { source_room_id: roomIds },
+            { target_room_id: roomIds }
+          ]
+        },
+        transaction
+      });
+    }
+
+    // 4. Delete the block (cascades to floors → rooms)
+    await block.destroy({ transaction });
+
+    await transaction.commit();
+    return res.json({ message: `Block "${block.name}" deleted successfully.` });
+
+  } catch (error) {
+    await transaction.rollback();
+    console.error('❌ Delete block error:', error);
+    return res.status(500).json({ error: 'Failed to delete block' });
   }
 }
 
@@ -410,16 +466,55 @@ async function createFloor(req, res) {
 }
 
 async function deleteFloor(req, res) {
+  const { id } = req.params;
+  const transaction = await sequelize.transaction();
   try {
-    const { id } = req.params;
-    const floor = await Floor.findByPk(id);
-    if (!floor) return res.status(404).json({ error: 'Floor not found.' });
+    const floor = await Floor.findByPk(id, { transaction });
+    if (!floor) {
+      await transaction.rollback();
+      return res.status(404).json({ error: 'Floor not found' });
+    }
 
-    await floor.destroy();
-    return res.json({ message: `Floor #${id} deleted.` });
-  } catch (err) {
-    console.error('Error in deleteFloor:', err);
-    return res.status(500).json({ error: 'Failed to delete floor.' });
+    // 1. Find all rooms on this floor
+    const rooms = await Room.findAll({
+      attributes: ['room_id'],
+      where: { floor_id: id },
+      transaction
+    });
+
+    const roomIds = rooms.map(r => r.room_id);
+
+    // 2. ✅ Reset students assigned to these rooms
+    if (roomIds.length > 0) {
+      await Student.update(
+        { booked_room_id: null, booking_status: 'Pending' },
+        { where: { booked_room_id: roomIds }, transaction }
+      );
+    }
+
+    // 3. Delete swap_requests referencing these rooms
+    if (roomIds.length > 0) {
+      await SwapRequest.destroy({
+        where: {
+          [Op.or]: [
+            { source_room_id: roomIds },
+            { target_room_id: roomIds }
+          ]
+        },
+        transaction
+      });
+    }
+
+    // 4. Delete the floor (cascades to rooms)
+    await floor.destroy({ transaction });
+
+    await transaction.commit();
+    return res.json({ message: `Floor ${floor.floor_number} deleted successfully.` });
+
+  } catch (error) {
+    await transaction.rollback();
+    console.error('❌ Delete floor error:', error);
+    return res.status(500).json({ error: 'Failed to delete floor' });
   }
 }
 
@@ -480,16 +575,42 @@ async function createRoom(req, res) {
 }
 
 async function deleteRoom(req, res) {
+  const { id } = req.params;
+  const transaction = await sequelize.transaction();
   try {
-    const { id } = req.params;
-    const room = await Room.findByPk(id);
-    if (!room) return res.status(404).json({ error: 'Room not found.' });
+    const room = await Room.findByPk(id, { transaction });
+    if (!room) {
+      await transaction.rollback();
+      return res.status(404).json({ error: 'Room not found' });
+    }
 
-    await room.destroy();
-    return res.json({ message: `Room #${id} deleted.` });
-  } catch (err) {
-    console.error('Error in deleteRoom:', err);
-    return res.status(500).json({ error: 'Failed to delete room.' });
+    // 1. ✅ Reset students assigned to this room
+    await Student.update(
+      { booked_room_id: null, booking_status: 'Pending' },
+      { where: { booked_room_id: id }, transaction }
+    );
+
+    // 2. Delete swap_requests referencing this room
+    await SwapRequest.destroy({
+      where: {
+        [Op.or]: [
+          { source_room_id: id },
+          { target_room_id: id }
+        ]
+      },
+      transaction
+    });
+
+    // 3. Delete the room
+    await room.destroy({ transaction });
+
+    await transaction.commit();
+    return res.json({ message: `Room ${room.room_number} deleted successfully.` });
+
+  } catch (error) {
+    await transaction.rollback();
+    console.error('❌ Delete room error:', error);
+    return res.status(500).json({ error: 'Failed to delete room' });
   }
 }
 
