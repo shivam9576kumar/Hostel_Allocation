@@ -562,13 +562,13 @@ async function getStudentSwapRequests(req, res) {
       order: [['created_at', 'DESC']]
     });
 
-    // Include if user is initiator, or in consents/movers, or is a stayer in source/target room
+    // Include only if user is initiator or a moving student in consents AND request is active
     const userRequests = requests.filter(reqItem => {
       const consents = parseJsonSafe(reqItem.consents);
       const isInitiator = reqItem.initiator_roll === studentRoll;
       const isMover = studentRoll in consents;
-      const isRoomOccupant = userRoomId && (reqItem.source_room_id === userRoomId || reqItem.target_room_id === userRoomId);
-      return isInitiator || isMover || isRoomOccupant;
+      const isActive = ['Pending', 'Consenting'].includes(reqItem.status);
+      return (isInitiator || isMover) && isActive;
     });
 
     return res.json({ swapRequests: userRequests });
