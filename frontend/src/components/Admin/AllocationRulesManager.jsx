@@ -83,9 +83,9 @@ const AllocationRulesManager = () => {
   const fetchBlocksForHostel = async (hId) => {
     try {
       const res = await api.get(`/admin/blocks?hostelId=${hId}`);
-      const fetchedBlocks = res.data.blocks || [];
-      setBlocks(fetchedBlocks);
-      if (fetchedBlocks.length > 0) {
+      const fetchedBlocks = res.data?.blocks || res.data?.data || res.data || [];
+      setBlocks(Array.isArray(fetchedBlocks) ? fetchedBlocks : []);
+      if (Array.isArray(fetchedBlocks) && fetchedBlocks.length > 0) {
         setSelectedBlockId(fetchedBlocks[0].block_id);
       } else {
         setSelectedBlockId('');
@@ -93,6 +93,7 @@ const AllocationRulesManager = () => {
     } catch (error) {
       console.error('Error fetching blocks:', error);
       setBlocks([]);
+      setSelectedBlockId('');
     }
   };
 

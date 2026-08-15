@@ -1,5 +1,5 @@
 const { parseAndInsertStudents } = require('../utils/csvParser');
-const { Hostel, Block, Floor, Room, Booking, Student, SwapRequest, AllocationRule, sequelize } = require('../models');
+const { Hostel, Block, Floor, Room, Booking, Student, SwapRequest, PDFHistory, AllocationRule, sequelize } = require('../models');
 const { Op } = require('sequelize');
 
 // 1. Upload Students Roster
@@ -541,7 +541,13 @@ async function getRooms(req, res) {
 
     const rooms = await Room.findAll({
       where,
-      include: [{ model: Floor, include: [{ model: Block, include: [Hostel] }] }],
+      include: [
+        { model: Floor, include: [{ model: Block, include: [Hostel] }] },
+        {
+          model: Student,
+          attributes: ['roll_number', 'full_name', 'email', 'gender', 'programme', 'year', 'booking_status']
+        }
+      ],
       order: [['room_number', 'ASC']]
     });
     return res.json({ rooms });
@@ -554,13 +560,18 @@ async function getRooms(req, res) {
 async function createRoom(req, res) {
   try {
     const { floor_id, room_number, capacity } = req.body;
-    if (!floor_id || !room_number) {
+    if (!floor_id || room_number === undefined || room_number === null) {
       return res.status(400).json({ error: 'floor_id and room_number are required.' });
+    }
+
+    let formattedRoomNumber = String(room_number).trim();
+    if (/^\d+$/.test(formattedRoomNumber)) {
+      formattedRoomNumber = formattedRoomNumber.padStart(3, '0');
     }
 
     const room = await Room.create({
       floor_id,
-      room_number,
+      room_number: formattedRoomNumber,
       capacity: capacity ? parseInt(capacity, 10) : 2,
       current_occupancy: 0,
       is_reserved: false,
@@ -706,8 +717,9 @@ async function bulkCreateRooms(req, res) {
     const roomData = [];
 
     for (let num = start; num <= end; num++) {
-      const roomNumStr = String(num);
-      if (existingNumbers.has(roomNumStr)) {
+      const numStr = String(num);
+      const roomNumStr = numStr.padStart(3, '0');
+      if (existingNumbers.has(roomNumStr) || existingNumbers.has(numStr)) {
         skipped.push(roomNumStr);
       } else {
         roomData.push({
@@ -1062,6 +1074,194 @@ async function getHostelAllocationRules(req, res) {
   }
 }
 
+/**
+ * Release occupants from a room
+ * - If clearAll: true → releases ALL students in the room
+ * - If clearAll: false → releases only the students in studentRolls array
+ */
+async function releaseOccupants(req, res) {
+  console.log('🔥 [Admin Controller] releaseOccupants called with roomId:', req.params.roomId, 'body:', req.body);
+  const { roomId } = req.params;
+  const { studentRolls, clearAll } = req.body;
+
+  const transaction = await sequelize.transaction();
+  try {
+    // 1. Find the room by primary key ID or room_number
+    let room = await Room.findByPk(roomId, { transaction });
+    if (!room) {
+      room = await Room.findOne({ where: { room_number: String(roomId) }, transaction });
+    }
+    if (!room) {
+      await transaction.rollback();
+      return res.status(404).json({ success: false, error: `Room #${roomId} not found in database.` });
+    }
+
+    // 2. Determine which students to release
+    if (clearAll === true) {
+      // ClearAll takes priority: find any occupants and release them, then reset room to Vacant
+      const occupants = await Student.findAll({
+        where: { booked_room_id: roomId },
+        transaction
+      });
+      const validRolls = occupants.map(s => s.roll_number);
+
+      if (validRolls.length > 0) {
+        // 1. Reset students to Pending
+        await Student.update(
+          { booked_room_id: null, booking_status: 'Pending' },
+          { where: { roll_number: validRolls }, transaction }
+        );
+
+        // 2. Delete bookings
+        await Booking.destroy({
+          where: { student_roll: validRolls },
+          transaction
+        });
+
+        // 3. Invalidate PDFs
+        await PDFHistory.update(
+          { is_current: false },
+          { where: { student_roll: validRolls, is_current: true }, transaction }
+        );
+
+        // 4. Cancel active swap requests
+        await SwapRequest.update(
+          { status: 'Cancelled' },
+          {
+            where: {
+              status: { [Op.in]: ['Pending', 'Consenting'] },
+              [Op.or]: [
+                { source_room_id: roomId },
+                { target_room_id: roomId },
+                { initiator_roll: validRolls },
+                { target_student_roll: validRolls }
+              ]
+            },
+            transaction
+          }
+        );
+      }
+
+      // Always reset room to Vacant (0 occupants)
+      await room.update({
+        current_occupancy: 0,
+        status: 'Vacant',
+        pairing_code: null,
+        code_expiry: null
+      }, { transaction });
+
+      await transaction.commit();
+
+      return res.json({
+        success: true,
+        message: `Room ${room.room_number} cleared successfully.`,
+        releasedStudents: validRolls,
+        roomStatus: 'Vacant',
+        currentOccupancy: 0,
+        roomNowVacant: true
+      });
+    }
+
+    // Regular case: release only selected students
+    if (!studentRolls || !Array.isArray(studentRolls) || studentRolls.length === 0) {
+      await transaction.rollback();
+      return res.status(400).json({ success: false, error: 'No students selected to release. Use clearAll: true to release all occupants.' });
+    }
+    const rollsToRelease = studentRolls.filter(Boolean);
+
+    // Validate: ensure all selected students are actually in this room
+    const validStudents = await Student.findAll({
+      where: { 
+        roll_number: rollsToRelease,
+        booked_room_id: roomId
+      },
+      transaction
+    });
+
+    const validRolls = validStudents.map(s => s.roll_number);
+    const invalidRolls = rollsToRelease.filter(r => !validRolls.includes(r));
+
+    if (invalidRolls.length > 0) {
+      await transaction.rollback();
+      return res.status(400).json({ 
+        success: false,
+        error: `Some students are not assigned to this room: ${invalidRolls.join(', ')}` 
+      });
+    }
+
+    if (validRolls.length === 0) {
+      await transaction.rollback();
+      return res.status(400).json({ success: false, error: 'No valid students found to release.' });
+    }
+
+    // Execute the release for selected students
+    await Student.update(
+      { booked_room_id: null, booking_status: 'Pending' },
+      { where: { roll_number: validRolls }, transaction }
+    );
+
+    await Booking.destroy({
+      where: { student_roll: validRolls },
+      transaction
+    });
+
+    await PDFHistory.update(
+      { is_current: false },
+      { where: { student_roll: validRolls, is_current: true }, transaction }
+    );
+
+    await SwapRequest.update(
+      { status: 'Cancelled' },
+      {
+        where: {
+          status: { [Op.in]: ['Pending', 'Consenting'] },
+          [Op.or]: [
+            { source_room_id: roomId },
+            { target_room_id: roomId },
+            { initiator_roll: validRolls },
+            { target_student_roll: validRolls }
+          ]
+        },
+        transaction
+      }
+    );
+
+    const remainingCount = await Student.count({
+      where: { booked_room_id: roomId },
+      transaction
+    });
+
+    const newStatus = remainingCount === 0 ? 'Vacant' : (remainingCount < room.capacity ? 'Pending_Pairing' : 'Locked');
+
+    await room.update({
+      current_occupancy: remainingCount,
+      status: newStatus,
+      pairing_code: remainingCount === 0 ? null : room.pairing_code,
+      code_expiry: remainingCount === 0 ? null : room.code_expiry
+    }, { transaction });
+
+    await transaction.commit();
+
+    return res.json({
+      success: true,
+      message: `Released ${validRolls.length} student(s) from Room ${room.room_number}`,
+      releasedStudents: validRolls,
+      roomStatus: newStatus,
+      currentOccupancy: remainingCount,
+      roomNowVacant: remainingCount === 0
+    });
+
+  } catch (error) {
+    await transaction.rollback();
+    console.error('❌ Release occupants error:', error);
+    return res.status(500).json({ 
+      success: false,
+      error: 'Failed to release occupants',
+      details: error.message 
+    });
+  }
+}
+
 module.exports = {
   uploadStudents,
   getHostels,
@@ -1083,6 +1283,7 @@ module.exports = {
   bulkCreateRooms,
   deleteRoom,
   toggleRoomReservation,
+  releaseOccupants,
   getStudents,
   getStudentCount,
   getAllocationRules,
@@ -1091,4 +1292,5 @@ module.exports = {
   deleteAllocationRule,
   getHostelAllocationRules
 };
+
 

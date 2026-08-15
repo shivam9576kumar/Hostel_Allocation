@@ -25,6 +25,7 @@ const {
   bulkCreateRooms,
   deleteRoom,
   toggleRoomReservation,
+  releaseOccupants,
   getStudents,
   getStudentCount,
   getAllocationRules,
@@ -113,5 +114,6 @@ router.post('/rooms', createRoom);
 router.post('/rooms/bulk', verifyAdmin, validateBulkRoom, bulkCreateRooms);
 router.delete('/rooms/:id', deleteRoom);
 router.put('/rooms/:id/reserve', toggleRoomReservation);
+router.post('/rooms/:roomId/release', releaseOccupants);
 
 module.exports = router;

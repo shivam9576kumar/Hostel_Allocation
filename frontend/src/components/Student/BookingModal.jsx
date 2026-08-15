@@ -48,7 +48,7 @@ const BookingModal = ({ room, onClose, onConfirmBooking, bookingResult }) => {
             </div>
             <h2 className="text-xl font-bold text-slate-900">Confirm Room Selection</h2>
             <p className="text-sm text-slate-600 mt-2">
-              You are selecting <strong className="text-slate-900">Room {room?.room_number}</strong>. Booking this room will generate a temporary 10-minute pairing code for your roommate.
+              You are selecting <strong className="text-slate-900">Room {room?.room_number}</strong>. Booking this room will generate a temporary 10-minute pairing code for your roommate{(room?.capacity || 2) > 2 ? 's' : ''}.
             </p>
 
             <div className="my-6 bg-slate-50 rounded-2xl p-4 border border-slate-200 text-sm space-y-2">
@@ -58,7 +58,7 @@ const BookingModal = ({ room, onClose, onConfirmBooking, bookingResult }) => {
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-500 font-medium">Capacity:</span>
-                <span className="font-semibold text-slate-800">2 Students</span>
+                <span className="font-semibold text-slate-800">{room?.capacity || 2} Students</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-500 font-medium">Pairing Window:</span>

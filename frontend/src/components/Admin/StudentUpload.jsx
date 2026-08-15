@@ -38,7 +38,8 @@ const StudentUpload = () => {
           status: filterStatus
         }
       });
-      setStudents(res.data.students || []);
+      const studentData = res.data?.data || res.data?.students || res.data;
+      setStudents(Array.isArray(studentData) ? studentData : []);
     } catch (err) {
       console.error(err);
     } finally {

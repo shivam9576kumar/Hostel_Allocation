@@ -3,19 +3,19 @@ const { Op } = require('sequelize');
 const { setSwapActive, isSwapActive } = require('../config/redis');
 const { generateAllocationPDF } = require('../utils/pdfGenerator');
 
-// Utility helper to parse JSON consents safely
-function parseConsents(consents) {
-  if (typeof consents === 'string') {
+// Utility helper to parse JSON safely
+function parseJsonSafe(value) {
+  if (typeof value === 'string') {
     try {
-      return JSON.parse(consents);
+      return JSON.parse(value);
     } catch (e) {
       return {};
     }
   }
-  return consents || {};
+  return value || {};
 }
 
-// Helper to regenerate PDFs post-swap for all involved students
+// Helper to regenerate PDFs post-swap for ALL involved occupants of both rooms
 async function regenerateSwapPDFs(involvedRolls, transaction) {
   const oldPdfPaths = {};
   const newPdfPaths = {};
@@ -35,7 +35,7 @@ async function regenerateSwapPDFs(involvedRolls, transaction) {
 
     const nextVersion = currentPdf ? currentPdf.version + 1 : 2;
 
-    // 2. Fetch updated student details & roommate
+    // 2. Fetch updated student details
     const student = await Student.findByPk(roll, {
       include: [
         {
@@ -47,22 +47,9 @@ async function regenerateSwapPDFs(involvedRolls, transaction) {
       transaction
     });
 
-    const booking = await Booking.findOne({
-      where: { student_roll: roll, room_id: student.booked_room_id },
-      transaction
-    });
-
-    let primaryStudent = student;
-    let secondaryStudent = null;
-
-    if (booking && booking.paired_with) {
-      const pairedStudentObj = await Student.findByPk(booking.paired_with, { transaction });
-      if (booking.is_primary) {
-        secondaryStudent = pairedStudentObj;
-      } else {
-        primaryStudent = pairedStudentObj;
-        secondaryStudent = student;
-      }
+    if (!student || !student.BookedRoom) {
+      console.warn(`[regenerateSwapPDFs] Student ${roll} has no booked room. Skipping PDF.`);
+      continue;
     }
 
     const room = student.BookedRoom;
@@ -70,13 +57,23 @@ async function regenerateSwapPDFs(involvedRolls, transaction) {
     const block = floor.Block;
     const hostel = block.Hostel;
 
+    // 3. Fetch all current roommates in the same room (excluding self)
+    const roommates = await Student.findAll({
+      where: {
+        booked_room_id: room.room_id,
+        roll_number: { [Op.ne]: roll }
+      },
+      order: [['roll_number', 'ASC']],
+      transaction
+    });
+
     const { filePath } = await generateAllocationPDF({
       hostelName: hostel.name,
       blockName: block.name,
       floorNumber: floor.floor_number,
       roomNumber: room.room_number,
-      student1: primaryStudent,
-      student2: secondaryStudent,
+      student1: student,
+      roommates: roommates,
       allocationDate: new Date(),
       isSwap: true,
       version: nextVersion
@@ -110,6 +107,15 @@ async function getEligibleRooms(req, res) {
     }
 
     const currentRoom = student.BookedRoom;
+    const roomCapacity = currentRoom.capacity || 2;
+
+    // Check if initiator's own room is fully occupied
+    if (currentRoom.current_occupancy !== roomCapacity) {
+      return res.status(400).json({
+        error: `Room swap requires your room to be fully occupied (${currentRoom.current_occupancy}/${roomCapacity} occupants currently).`
+      });
+    }
+
     const hostelId = currentRoom.Floor?.Block?.hostel_id;
 
     // Find all active pending or consenting swap requests to exclude rooms already involved
@@ -125,11 +131,12 @@ async function getEligibleRooms(req, res) {
       busyRoomIds.add(swap.target_room_id);
     });
 
-    // Fetch occupied rooms in same hostel
+    // Fetch rooms in same hostel that have matching capacity AND are fully occupied
     const rooms = await Room.findAll({
       where: {
         room_id: { [Op.ne]: currentRoom.room_id },
-        current_occupancy: { [Op.gt]: 0 }
+        capacity: roomCapacity, // Must match same capacity
+        current_occupancy: roomCapacity // Must be 100% fully occupied
       },
       include: [
         {
@@ -154,7 +161,22 @@ async function getEligibleRooms(req, res) {
 
     const eligibleRooms = rooms.filter(r => !busyRoomIds.has(r.room_id));
 
-    return res.json({ eligibleRooms });
+    // Fetch occupants of initiator's own room for UI roommate selection
+    const sourceOccupants = await Student.findAll({
+      where: { booked_room_id: currentRoom.room_id },
+      attributes: ['roll_number', 'full_name', 'email', 'gender', 'programme', 'year']
+    });
+
+    return res.json({
+      eligibleRooms,
+      sourceRoom: {
+        room_id: currentRoom.room_id,
+        room_number: currentRoom.room_number,
+        capacity: roomCapacity,
+        current_occupancy: currentRoom.current_occupancy,
+        occupants: sourceOccupants
+      }
+    });
   } catch (err) {
     console.error('Error in getEligibleRooms:', err);
     return res.status(500).json({ error: `Failed to fetch eligible rooms: ${err.message}` });
@@ -165,18 +187,17 @@ async function getEligibleRooms(req, res) {
 async function createRequest(req, res) {
   try {
     const initiatorRoll = req.student.roll_number;
-    const { target_room_id, swap_type, target_student_roll } = req.body;
+    let { target_room_id, swap_type, movers, target_student_roll } = req.body;
 
     if (!target_room_id || !swap_type) {
       return res.status(400).json({ error: 'target_room_id and swap_type are required.' });
     }
 
-    if (swap_type !== 'full' && swap_type !== 'individual') {
-      return res.status(400).json({ error: 'swap_type must be either "full" or "individual".' });
-    }
+    // Normalize legacy type
+    if (swap_type === 'individual') swap_type = 'single';
 
-    if (swap_type === 'individual' && !target_student_roll) {
-      return res.status(400).json({ error: 'target_student_roll is required for individual swap.' });
+    if (!['single', 'double', 'full'].includes(swap_type)) {
+      return res.status(400).json({ error: 'swap_type must be "single", "double", or "full".' });
     }
 
     const initiator = await Student.findByPk(initiatorRoll, {
@@ -187,9 +208,19 @@ async function createRequest(req, res) {
       return res.status(400).json({ error: 'Initiator must have an active locked booking.' });
     }
 
-    const sourceRoomId = initiator.booked_room_id;
+    const sourceRoom = initiator.BookedRoom;
+    const sourceRoomId = sourceRoom.room_id;
+    const sourceCapacity = sourceRoom.capacity || 2;
+
     if (sourceRoomId === parseInt(target_room_id, 10)) {
       return res.status(400).json({ error: 'Source room and target room must be different.' });
+    }
+
+    // Validate full occupancy of initiator room
+    if (sourceRoom.current_occupancy !== sourceCapacity) {
+      return res.status(400).json({
+        error: `Your room must be fully occupied (${sourceRoom.current_occupancy}/${sourceCapacity}) to initiate a swap.`
+      });
     }
 
     const targetRoom = await Room.findByPk(target_room_id, {
@@ -199,18 +230,39 @@ async function createRequest(req, res) {
       ]
     });
 
-    if (!targetRoom || targetRoom.current_occupancy === 0) {
-      return res.status(404).json({ error: 'Target room not found or is empty.' });
+    if (!targetRoom) {
+      return res.status(404).json({ error: 'Target room not found.' });
     }
 
-    const sourceHostelId = initiator.BookedRoom.Floor?.Block?.hostel_id;
+    const targetCapacity = targetRoom.capacity || 2;
+
+    // Validate capacity match
+    if (sourceCapacity !== targetCapacity) {
+      return res.status(400).json({
+        error: `Room capacity mismatch. Source room is ${sourceCapacity}-seater but target room is ${targetCapacity}-seater.`
+      });
+    }
+
+    // Validate full occupancy of target room
+    if (targetRoom.current_occupancy !== targetCapacity) {
+      return res.status(400).json({
+        error: `Target room must be fully occupied (${targetRoom.current_occupancy}/${targetCapacity}) to participate in a swap.`
+      });
+    }
+
+    const sourceHostelId = sourceRoom.Floor?.Block?.hostel_id;
     const targetHostelId = targetRoom.Floor?.Block?.hostel_id;
 
     if (sourceHostelId !== targetHostelId) {
       return res.status(400).json({ error: 'Both rooms must belong to the same hostel.' });
     }
 
-    // Check existing busy swap requests
+    // Validate swap type vs capacity
+    if (sourceCapacity === 2 && swap_type === 'double') {
+      return res.status(400).json({ error: 'Double swap (2↔2) is only supported for 3-seater rooms.' });
+    }
+
+    // Check active busy swap requests
     const busySwap = await SwapRequest.findOne({
       where: {
         status: { [Op.in]: ['Pending', 'Consenting'] },
@@ -227,25 +279,70 @@ async function createRequest(req, res) {
       return res.status(400).json({ error: 'One or both rooms are already involved in an active pending swap request.' });
     }
 
-    // Determine involved students
+    // Fetch occupants of both rooms
     const sourceOccupants = await Student.findAll({ where: { booked_room_id: sourceRoomId } });
     const targetOccupants = await Student.findAll({ where: { booked_room_id: target_room_id } });
 
-    let involvedRolls = [];
-    if (swap_type === 'full') {
-      involvedRolls = [
-        ...sourceOccupants.map(s => s.roll_number),
-        ...targetOccupants.map(s => s.roll_number)
-      ];
-    } else {
-      if (!targetOccupants.some(s => s.roll_number === target_student_roll)) {
-        return res.status(400).json({ error: 'Target student is not an occupant of the target room.' });
+    const sourceOccupantRolls = sourceOccupants.map(s => s.roll_number);
+    const targetOccupantRolls = targetOccupants.map(s => s.roll_number);
+
+    let sourceMovers = [];
+    let targetMovers = [];
+
+    if (swap_type === 'single') {
+      // Initiator is auto the source mover
+      sourceMovers = [initiatorRoll];
+
+      // Target mover
+      let targetMover = null;
+      if (movers && Array.isArray(movers.target_movers) && movers.target_movers.length === 1) {
+        targetMover = movers.target_movers[0];
+      } else if (target_student_roll) {
+        targetMover = target_student_roll;
       }
-      involvedRolls = [initiatorRoll, target_student_roll];
+
+      if (!targetMover || !targetOccupantRolls.includes(targetMover)) {
+        return res.status(400).json({ error: 'Single swap requires selecting exactly 1 valid student from the target room.' });
+      }
+      targetMovers = [targetMover];
+
+    } else if (swap_type === 'double') {
+      if (sourceCapacity !== 3) {
+        return res.status(400).json({ error: 'Double swap is only supported for rooms with capacity 3.' });
+      }
+
+      // Source movers: initiator + 1 roommate
+      if (movers && Array.isArray(movers.source_movers)) {
+        sourceMovers = movers.source_movers;
+      }
+      if (!sourceMovers.includes(initiatorRoll)) {
+        sourceMovers.push(initiatorRoll);
+      }
+      sourceMovers = [...new Set(sourceMovers)];
+
+      if (sourceMovers.length !== 2 || !sourceMovers.every(r => sourceOccupantRolls.includes(r))) {
+        return res.status(400).json({ error: 'Double swap requires selecting exactly 1 roommate from your room to move with you.' });
+      }
+
+      // Target movers: exactly 2 students from target room
+      if (movers && Array.isArray(movers.target_movers)) {
+        targetMovers = [...new Set(movers.target_movers)];
+      }
+
+      if (targetMovers.length !== 2 || !targetMovers.every(r => targetOccupantRolls.includes(r))) {
+        return res.status(400).json({ error: 'Double swap requires selecting exactly 2 students from the target room.' });
+      }
+
+    } else if (swap_type === 'full') {
+      // Full swap: all occupants in both rooms move
+      sourceMovers = sourceOccupantRolls;
+      targetMovers = targetOccupantRolls;
     }
 
+    // Consent Collection: ONLY MOVERS must consent!
+    const involvedMovers = [...sourceMovers, ...targetMovers];
     const consents = {};
-    involvedRolls.forEach(roll => {
+    involvedMovers.forEach(roll => {
       consents[roll] = (roll === initiatorRoll); // Initiator auto-consents
     });
 
@@ -255,15 +352,19 @@ async function createRequest(req, res) {
       initiator_roll: initiatorRoll,
       source_room_id: sourceRoomId,
       target_room_id: parseInt(target_room_id, 10),
-      target_student_roll: swap_type === 'individual' ? target_student_roll : null,
+      target_student_roll: targetMovers.length === 1 ? targetMovers[0] : null,
       swap_type,
+      movers: {
+        source_movers: sourceMovers,
+        target_movers: targetMovers
+      },
       status: 'Consenting',
       consents,
       expires_at: expiresAt
     });
 
     return res.status(201).json({
-      message: 'Swap request created successfully. Awaiting required consents.',
+      message: 'Swap request created successfully. Awaiting required consents from moving students.',
       swapRequest
     });
   } catch (err) {
@@ -279,19 +380,12 @@ async function giveConsent(req, res) {
     const { id } = req.params;
     const { consent } = req.body;
 
-    console.log('📝 giveConsent called:');
-    console.log('  - Request ID:', id);
-    console.log('  - Student Roll:', studentRoll);
-    console.log('  - Consent value:', consent);
+    console.log(`📝 giveConsent called: reqId=${id}, roll=${studentRoll}, consent=${consent}`);
 
     const swapRequest = await SwapRequest.findByPk(id);
     if (!swapRequest) {
-      console.log('❌ Swap request not found');
       return res.status(404).json({ error: 'Swap request not found.' });
     }
-
-    console.log('  - Current status:', swapRequest.status);
-    console.log('  - Current consents (raw):', swapRequest.consents);
 
     if (swapRequest.status !== 'Pending' && swapRequest.status !== 'Consenting') {
       return res.status(400).json({ error: `Cannot give consent to a swap request with status: ${swapRequest.status}` });
@@ -302,27 +396,25 @@ async function giveConsent(req, res) {
       return res.status(400).json({ error: 'Swap request has expired.' });
     }
 
-    // Parse consents – handle both string and object
-    let consents = typeof swapRequest.consents === 'string' 
-      ? JSON.parse(swapRequest.consents) 
-      : (swapRequest.consents || {});
-
-    console.log('  - Parsed consents:', consents);
+    let consents = parseJsonSafe(swapRequest.consents);
 
     if (!(studentRoll in consents)) {
-      return res.status(403).json({ error: 'You are not part of this swap request.' });
+      return res.status(403).json({
+        error: 'You are not a moving student in this swap request. Stayers are automatically notified and do not need to consent.'
+      });
     }
 
     // Update the consent
     if (consent === false) {
       consents[studentRoll] = false;
-      const consentsString = JSON.stringify(consents);
-      console.log('  - Rejecting: consents to save:', consentsString);
-      await swapRequest.update({ consents: consentsString, status: 'Cancelled' });
+      await swapRequest.update({
+        consents: JSON.stringify(consents),
+        status: 'Cancelled'
+      });
       await swapRequest.reload();
-      return res.json({ 
-        message: 'Swap request rejected and cancelled.', 
-        swapRequest: swapRequest.toJSON() 
+      return res.json({
+        message: 'Swap request rejected and cancelled.',
+        swapRequest: swapRequest.toJSON()
       });
     }
 
@@ -331,33 +423,24 @@ async function giveConsent(req, res) {
     const allConsented = Object.values(consents).every(val => val === true);
     const consentsString = JSON.stringify(consents);
 
-    console.log('  - Updated consents:', consentsString);
-    console.log('  - All consented?', allConsented);
-
     if (allConsented) {
-      console.log('✅ All consented! Executing swap...');
-      // Execute the swap (this function also updates the status)
-      // Save stringified consents first so executeSwapInternal sees all consents true
+      console.log('✅ All movers consented! Executing swap...');
       await swapRequest.update({ consents: consentsString });
       const pdfResults = await executeSwapInternal(swapRequest);
       await swapRequest.reload();
       return res.json({
-        message: 'All required consents received! Room swap executed and new PDFs generated successfully.',
+        message: 'All required consents received! Room swap executed and updated certificates generated.',
         swapRequest: swapRequest.toJSON(),
         newPdfPaths: pdfResults.newPdfPaths
       });
     } else {
-      console.log('⏳ Not all consented. Updating consents in database...');
-      // ✅ FIX: Stringify and save the consents
-      await swapRequest.update({ 
-        consents: consentsString, 
-        status: 'Consenting' 
+      await swapRequest.update({
+        consents: consentsString,
+        status: 'Consenting'
       });
       await swapRequest.reload();
-      console.log('  - Database updated. New consents:', swapRequest.consents);
-      
       return res.json({
-        message: 'Consent recorded successfully. Awaiting remaining student consents.',
+        message: 'Consent recorded successfully. Awaiting remaining mover consents.',
         swapRequest: swapRequest.toJSON()
       });
     }
@@ -375,75 +458,74 @@ async function executeSwapInternal(swapRequest) {
     const targetRoomId = swapRequest.target_room_id;
     const swapType = swapRequest.swap_type;
 
-    // 🔍 DEBUG: Log which rooms are involved
     console.log(`🔄 Executing ${swapType} swap: Room ${sourceRoomId} ↔ Room ${targetRoomId}`);
 
-    // ✅ Fetch ALL students from BOTH rooms BEFORE any updates
-    const sourceStudents = await Student.findAll({
+    // Fetch ALL occupants from BOTH rooms BEFORE updates
+    const sourceOccupants = await Student.findAll({
       where: { booked_room_id: sourceRoomId },
       transaction
     });
-    const targetStudents = await Student.findAll({
+    const targetOccupants = await Student.findAll({
       where: { booked_room_id: targetRoomId },
       transaction
     });
 
-    console.log(`  - Source Room (${sourceRoomId}) occupants:`, sourceStudents.map(s => s.roll_number));
-    console.log(`  - Target Room (${targetRoomId}) occupants:`, targetStudents.map(s => s.roll_number));
+    const sourceOccupantRolls = sourceOccupants.map(s => s.roll_number);
+    const targetOccupantRolls = targetOccupants.map(s => s.roll_number);
 
-    // ✅ Collect ALL occupants from BOTH rooms (THIS IS THE CRITICAL FIX)
-    const allAffectedRolls = [
-      ...sourceStudents.map(s => s.roll_number),
-      ...targetStudents.map(s => s.roll_number)
-    ];
-    console.log(`  - All affected students (${allAffectedRolls.length}):`, allAffectedRolls);
+    // All occupants in both rooms (4 for 2-seater, 6 for 3-seater)
+    const allOccupantRolls = [...sourceOccupantRolls, ...targetOccupantRolls];
 
-    // ✅ Execute the swap based on type
-    if (swapType === 'full') {
-      // Full swap: move ALL students from both rooms
-      for (const s of sourceStudents) {
-        await s.update({ booked_room_id: targetRoomId }, { transaction });
-        await Booking.update(
-          { room_id: targetRoomId },
-          { where: { student_roll: s.roll_number }, transaction }
-        );
+    // Determine movers
+    let movers = parseJsonSafe(swapRequest.movers);
+    let sourceMovers = movers.source_movers || [];
+    let targetMovers = movers.target_movers || [];
+
+    // Fallback for legacy swap requests
+    if (sourceMovers.length === 0 && targetMovers.length === 0) {
+      if (swapType === 'full') {
+        sourceMovers = sourceOccupantRolls;
+        targetMovers = targetOccupantRolls;
+      } else {
+        sourceMovers = [swapRequest.initiator_roll];
+        targetMovers = [swapRequest.target_student_roll];
       }
-      for (const s of targetStudents) {
-        await s.update({ booked_room_id: sourceRoomId }, { transaction });
-        await Booking.update(
-          { room_id: sourceRoomId },
-          { where: { student_roll: s.roll_number }, transaction }
-        );
-      }
-      console.log(`✅ Full swap completed: all ${sourceStudents.length + targetStudents.length} students moved`);
-    } else {
-      // Individual swap: ONLY two students move
-      const initiator = await Student.findByPk(swapRequest.initiator_roll, { transaction });
-      const targetStudent = await Student.findByPk(swapRequest.target_student_roll, { transaction });
-
-      console.log(`  - Initiator: ${initiator.roll_number} → Room ${targetRoomId}`);
-      console.log(`  - Target Student: ${targetStudent.roll_number} → Room ${sourceRoomId}`);
-
-      await initiator.update({ booked_room_id: targetRoomId }, { transaction });
-      await Booking.update(
-        { room_id: targetRoomId },
-        { where: { student_roll: initiator.roll_number }, transaction }
-      );
-
-      await targetStudent.update({ booked_room_id: sourceRoomId }, { transaction });
-      await Booking.update(
-        { room_id: sourceRoomId },
-        { where: { student_roll: targetStudent.roll_number }, transaction }
-      );
-      console.log(`✅ Individual swap completed: 2 students moved, ${allAffectedRolls.length - 2} roommates updated`);
     }
 
-    // 🔥 CRITICAL: Regenerate PDFs for ALL affected students (4 students)
-    // This ensures roommates also get updated PDFs with new roommate details
-    console.log(`📄 Regenerating PDFs for ${allAffectedRolls.length} students...`);
-    const { oldPdfPaths, newPdfPaths } = await regenerateSwapPDFs(allAffectedRolls, transaction);
+    console.log(`  - Moving from Source (Room ${sourceRoomId} → ${targetRoomId}):`, sourceMovers);
+    console.log(`  - Moving from Target (Room ${targetRoomId} → ${sourceRoomId}):`, targetMovers);
 
-    // ✅ Update swap request with PDF paths
+    // 1. Move source movers to target room
+    for (const roll of sourceMovers) {
+      await Student.update(
+        { booked_room_id: targetRoomId },
+        { where: { roll_number: roll }, transaction }
+      );
+      await Booking.update(
+        { room_id: targetRoomId },
+        { where: { student_roll: roll }, transaction }
+      );
+    }
+
+    // 2. Move target movers to source room
+    for (const roll of targetMovers) {
+      await Student.update(
+        { booked_room_id: sourceRoomId },
+        { where: { roll_number: roll }, transaction }
+      );
+      await Booking.update(
+        { room_id: sourceRoomId },
+        { where: { student_roll: roll }, transaction }
+      );
+    }
+
+    // 3. Stayers remain untouched in their respective rooms
+
+    // 4. 🔥 CRITICAL: Regenerate PDFs for ALL occupants of BOTH rooms (4 or 6 students)
+    console.log(`📄 Regenerating allocation PDFs for all ${allOccupantRolls.length} occupants...`);
+    const { oldPdfPaths, newPdfPaths } = await regenerateSwapPDFs(allOccupantRolls, transaction);
+
+    // 5. Update swap request status to Executed
     await swapRequest.update({
       status: 'Executed',
       old_pdf_paths: oldPdfPaths,
@@ -452,8 +534,7 @@ async function executeSwapInternal(swapRequest) {
 
     await transaction.commit();
 
-    console.log(`✅ Swap #${swapRequest.id} executed successfully!`);
-    console.log(`  - New PDFs generated for: ${Object.keys(newPdfPaths).join(', ')}`);
+    console.log(`✅ Swap #${swapRequest.id} executed successfully! Certificates generated for: ${Object.keys(newPdfPaths).join(', ')}`);
 
     return { oldPdfPaths, newPdfPaths };
 
@@ -468,6 +549,9 @@ async function executeSwapInternal(swapRequest) {
 async function getStudentSwapRequests(req, res) {
   try {
     const studentRoll = req.student.roll_number;
+    const student = await Student.findByPk(studentRoll);
+    const userRoomId = student ? student.booked_room_id : null;
+
     const requests = await SwapRequest.findAll({
       include: [
         { model: Student, as: 'Initiator', attributes: ['roll_number', 'full_name', 'email'] },
@@ -478,9 +562,13 @@ async function getStudentSwapRequests(req, res) {
       order: [['created_at', 'DESC']]
     });
 
+    // Include if user is initiator, or in consents/movers, or is a stayer in source/target room
     const userRequests = requests.filter(reqItem => {
-      const consents = parseConsents(reqItem.consents);
-      return reqItem.initiator_roll === studentRoll || (studentRoll in consents);
+      const consents = parseJsonSafe(reqItem.consents);
+      const isInitiator = reqItem.initiator_roll === studentRoll;
+      const isMover = studentRoll in consents;
+      const isRoomOccupant = userRoomId && (reqItem.source_room_id === userRoomId || reqItem.target_room_id === userRoomId);
+      return isInitiator || isMover || isRoomOccupant;
     });
 
     return res.json({ swapRequests: userRequests });

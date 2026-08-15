@@ -165,6 +165,7 @@ const PDFView = ({ student, onLogout }) => {
           isOpen={isSwapModalOpen}
           onClose={() => setIsSwapModalOpen(false)}
           onSuccess={() => window.location.reload()}
+          student={student}
         />
 
       </div>

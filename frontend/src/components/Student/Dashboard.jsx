@@ -14,6 +14,8 @@ import BookingModal from './BookingModal';
 import PairCodeModal from './PairCodeModal';
 import PairCodeEntry from './PairCodeEntry';
 import PDFView from './PDFView';
+import RoomStatusCard from './RoomStatusCard';
+import toast from 'react-hot-toast';
 import { LogOut, User, Building2, CheckCircle, ShieldAlert } from 'lucide-react';
 
 const Dashboard = () => {
@@ -145,11 +147,12 @@ const Dashboard = () => {
     if (!selectedRoomForBooking) return;
     try {
       const res = await bookRoom(selectedRoomForBooking.room_id);
-      setBookingResult(res.data);
-      // Refresh room list
-      if (selectedFloor) handleSelectFloor(selectedFloor);
+      setSelectedRoomForBooking(null);
+      setBookingResult(null);
+      toast.success(res.data?.message || 'Room booked successfully!');
+      await fetchDashboard();
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to book room.');
+      toast.error(err.response?.data?.error || 'Failed to book room.');
     }
   };
 
@@ -157,12 +160,13 @@ const Dashboard = () => {
   const handleSubmitPairCode = async (code) => {
     if (!selectedRoomForPairing) return;
     try {
-      await pairRoom(selectedRoomForPairing.room_id, code);
+      const res = await pairRoom(selectedRoomForPairing.room_id, code);
       setSelectedRoomForPairing(null);
-      // Refresh dashboard to trigger PDF redirect
+      toast.success(res.data?.message || 'Joined room successfully!');
       await fetchDashboard();
     } catch (err) {
-      throw new Error(err.response?.data?.error || 'Pairing failed.');
+      toast.error(err.response?.data?.error || 'Pairing failed.');
+      throw err;
     }
   };
 
@@ -177,10 +181,7 @@ const Dashboard = () => {
     );
   }
 
-  // Redirect to PDFView if student booking status is Locked
-  if (dashboardData?.redirectToPdf || user?.booking_status === 'Locked') {
-    return <PDFView student={user} onLogout={logout} forceRefresh={true} />;
-  }
+  // Note: RoomStatusCard is rendered in main dashboard for Pending_Pairing and Locked statuses
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900">
@@ -228,7 +229,15 @@ const Dashboard = () => {
           </div>
 
           {/* DYNAMIC ELIGIBILITY BANNER */}
-          {hostels.length > 0 ? (
+          {user?.booked_room_id || user?.booking_status === 'Locked' || user?.booking_status === 'Pending_Pairing' ? (
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 flex items-center gap-3">
+              <CheckCircle className="w-5 h-5 text-blue-600 shrink-0" />
+              <div className="text-xs text-blue-900">
+                <span className="font-bold block">Active Room Booking Confirmed</span>
+                <span>Status: {user?.booking_status === 'Locked' ? 'Locked • Official Allocation Certificate Ready' : 'Pending Roommate Pairing'}</span>
+              </div>
+            </div>
+          ) : hostels.length > 0 ? (
             <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 flex items-center gap-3">
               <CheckCircle className="w-5 h-5 text-emerald-600 shrink-0" />
               <div className="text-xs text-emerald-900">
@@ -255,28 +264,40 @@ const Dashboard = () => {
           </div>
         )}
 
-        {/* Instant Code Entry Shortcut */}
-        <PairCodeEntry onPairSuccess={fetchDashboard} />
+        {/* Active Booking Room Status Card OR Booking Selector */}
+        {user?.booked_room_id && (user?.booking_status === 'Pending_Pairing' || user?.booking_status === 'Locked') ? (
+          <RoomStatusCard
+            room={dashboardData?.student?.BookedRoom || { room_id: user.booked_room_id }}
+            user={user}
+            onPdfReady={() => window.location.href = '/pdf'}
+            onNavigate={fetchDashboard}
+          />
+        ) : (
+          <>
+            {/* Instant Code Entry Shortcut */}
+            <PairCodeEntry onPairSuccess={fetchDashboard} />
 
-        {/* Cascading Dropdown Selector */}
-        <CascadingDropdown
-          hostels={hostels}
-          blocks={blocks}
-          floors={floors}
-          selectedHostel={selectedHostel}
-          selectedBlock={selectedBlock}
-          selectedFloor={selectedFloor}
-          onSelectHostel={handleSelectHostel}
-          onSelectBlock={handleSelectBlock}
-          onSelectFloor={handleSelectFloor}
-          onReset={handleReset}
-        />
+            {/* Cascading Dropdown Selector */}
+            <CascadingDropdown
+              hostels={hostels}
+              blocks={blocks}
+              floors={floors}
+              selectedHostel={selectedHostel}
+              selectedBlock={selectedBlock}
+              selectedFloor={selectedFloor}
+              onSelectHostel={handleSelectHostel}
+              onSelectBlock={handleSelectBlock}
+              onSelectFloor={handleSelectFloor}
+              onReset={handleReset}
+            />
 
-        {/* Room Grid */}
-        <RoomGrid
-          rooms={rooms}
-          onSelectRoom={handleRoomClick}
-        />
+            {/* Room Grid */}
+            <RoomGrid
+              rooms={rooms}
+              onSelectRoom={handleRoomClick}
+            />
+          </>
+        )}
 
       </main>
 

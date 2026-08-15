@@ -8,6 +8,8 @@ export const getRooms = (floorId) => api.get(`/student/rooms/${floorId}`);
 export const bookRoom = (roomId) => api.post(`/student/rooms/${roomId}/book`);
 export const pairRoom = (roomId, code) => api.post(`/student/rooms/${roomId}/pair`, { code });
 export const pairByCode = (code) => api.post('/student/pair-by-code', { code });
+export const getRoomOccupants = (roomId) => api.get(`/student/room/${roomId}/occupants`);
+export const downloadAllocationPDF = () => api.get('/student/pdf', { responseType: 'blob' });
 export const getActiveSwap = () => api.get('/student/swap/active');
 export const getEligibleSwapRooms = () => api.get('/student/swap/eligible-rooms');
 export const getSwapRequests = () => api.get('/student/swap/requests');

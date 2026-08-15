@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import api from '../../api/axios';
-import { DoorClosed, Trash2, Lock, Unlock, Users, Filter } from 'lucide-react';
+import { DoorClosed, Trash2, Lock, Unlock, Users, Filter, UserCog, UserX } from 'lucide-react';
 import BulkRoomCreator from './BulkRoomCreator';
+import ManageOccupantsModal from './ManageOccupantsModal';
 
 const RoomManager = () => {
   const [rooms, setRooms] = useState([]);
   const [floors, setFloors] = useState([]);
   const [filterFloorId, setFilterFloorId] = useState('ALL');
+  const [selectedRoomForManage, setSelectedRoomForManage] = useState(null);
 
   const fetchFloors = async () => {
     try {
@@ -66,9 +68,11 @@ const RoomManager = () => {
           <div>
             <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
               <DoorClosed className="w-5 h-5 text-amber-500" />
-              Rooms Directory & Occupancy
+              Rooms Directory & Occupant Management
             </h2>
-            <p className="text-xs text-slate-500">Toggle room reservation status (`is_reserved`) to hide specific rooms from student grid.</p>
+            <p className="text-xs text-slate-500">
+              Manage room occupants, release dropouts/students directly, or toggle room reservation status.
+            </p>
           </div>
 
           <div className="flex items-center gap-2">
@@ -95,7 +99,7 @@ const RoomManager = () => {
                 <th className="p-3.5">ID</th>
                 <th className="p-3.5">Room Number</th>
                 <th className="p-3.5">Hierarchy (Hostel / Block / Floor)</th>
-                <th className="p-3.5">Occupancy</th>
+                <th className="p-3.5">Occupancy & Students</th>
                 <th className="p-3.5">Status</th>
                 <th className="p-3.5">Reservation Status</th>
                 <th className="p-3.5 text-right">Actions</th>
@@ -106,6 +110,7 @@ const RoomManager = () => {
                 const floor = r.Floor;
                 const block = floor?.Block;
                 const hostel = block?.Hostel;
+                const occupants = r.Students || [];
 
                 return (
                   <tr key={r.room_id} className="hover:bg-slate-50/80 transition">
@@ -114,14 +119,29 @@ const RoomManager = () => {
                     <td className="p-3.5 text-xs font-medium text-slate-600">
                       {hostel?.name} / {block?.name} / Floor {floor?.floor_number}
                     </td>
-                    <td className="p-3.5 font-semibold text-slate-700">
-                      <span className="inline-flex items-center gap-1">
-                        <Users className="w-3.5 h-3.5 text-slate-400" />
-                        {r.current_occupancy} / {r.capacity || 2}
-                      </span>
+                    <td className="p-3.5">
+                      <div className="space-y-1">
+                        <div className="font-semibold text-slate-700 inline-flex items-center gap-1.5 text-xs">
+                          <Users className="w-3.5 h-3.5 text-slate-400" />
+                          <span>{r.current_occupancy} / {r.capacity || 2} Occupied</span>
+                        </div>
+                        {occupants.length > 0 && (
+                          <div className="flex flex-wrap gap-1 max-w-xs">
+                            {occupants.map((st) => (
+                              <span
+                                key={st.roll_number}
+                                className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-medium bg-slate-100 text-slate-700 border border-slate-200"
+                                title={`${st.full_name} (${st.roll_number})`}
+                              >
+                                {st.full_name.split(' ')[0]} ({st.roll_number})
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </td>
                     <td className="p-3.5">
-                      <span className={`px-2 py-0.5 rounded-md text-xs font-semibold uppercase ${
+                      <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase ${
                         r.status === 'Vacant' ? 'bg-emerald-100 text-emerald-800' :
                         r.status === 'Pending_Pairing' ? 'bg-amber-100 text-amber-800' : 'bg-rose-100 text-rose-800'
                       }`}>
@@ -135,6 +155,18 @@ const RoomManager = () => {
                       </span>
                     </td>
                     <td className="p-3.5 text-right space-x-2">
+                      {/* Manage Occupants Button */}
+                      {r.current_occupancy > 0 && (
+                        <button
+                          onClick={() => setSelectedRoomForManage(r)}
+                          className="px-3 py-1.5 bg-blue-50 hover:bg-blue-600 text-blue-700 hover:text-white border border-blue-200 rounded-lg text-xs font-bold transition inline-flex items-center gap-1.5 shadow-sm"
+                          title="Manage Occupants (Release individual or all students)"
+                        >
+                          <UserCog className="w-3.5 h-3.5" />
+                          Manage Occupants
+                        </button>
+                      )}
+
                       <button
                         onClick={() => handleToggleReserve(r.room_id)}
                         className={`px-3 py-1.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1 transition ${r.is_reserved ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100' : 'bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100'}`}
@@ -164,6 +196,15 @@ const RoomManager = () => {
           </table>
         </div>
       </div>
+
+      {/* Modal for Managing Occupants */}
+      {selectedRoomForManage && (
+        <ManageOccupantsModal
+          room={selectedRoomForManage}
+          onClose={() => setSelectedRoomForManage(null)}
+          onSuccess={fetchRooms}
+        />
+      )}
     </div>
   );
 };

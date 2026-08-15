@@ -1,4 +1,4 @@
-const { Student, Room, Floor, Block, Hostel, Booking, AllocationRule, sequelize } = require('../models');
+const { Student, Room, Floor, Block, Hostel, Booking, AllocationRule, PDFHistory, sequelize } = require('../models');
 const redisClient = require('../config/redis');
 const { generatePairingCode } = require('../utils/codeGenerator');
 const { generateAllocationPDF } = require('../utils/pdfGenerator');
@@ -7,6 +7,166 @@ const { Op } = require('sequelize');
 // Helper for Dialect-Aware Row Locking
 function getLockOption(t) {
   return sequelize.getDialect() === 'postgres' ? { lock: t.LOCK.UPDATE } : {};
+}
+
+// Helper: Shared Room Pairing Execution Engine
+async function executeRoomPairing({ room, studentB, code, transaction, hostel }) {
+  const now = new Date();
+
+  // 1. Get existing bookings in this room
+  const existingBookings = await Booking.findAll({
+    where: { room_id: room.room_id },
+    transaction
+  });
+
+  const alreadyJoined = existingBookings.some(b => b.student_roll === studentB.roll_number);
+  if (alreadyJoined) {
+    if (!transaction.finished) await transaction.rollback();
+    return { error: 'You have already joined this room.', status: 400 };
+  }
+
+  const primaryBooking = existingBookings.find(b => b.is_primary) || existingBookings[0];
+  if (!primaryBooking) {
+    if (!transaction.finished) await transaction.rollback();
+    return { error: 'Primary booking not found for this room.', status: 400 };
+  }
+
+  if (primaryBooking.student_roll === studentB.roll_number) {
+    if (!transaction.finished) await transaction.rollback();
+    return { error: 'Primary student cannot pair with themselves.', status: 400 };
+  }
+
+  const studentA = await Student.findOne({ where: { roll_number: primaryBooking.student_roll }, transaction });
+
+  // 2. Create secondary booking for studentB
+  await Booking.create({
+    room_id: room.room_id,
+    student_roll: studentB.roll_number,
+    booking_date: now,
+    is_primary: false,
+    paired_with: studentA ? studentA.roll_number : null
+  }, { transaction });
+
+  // Update primary booking paired_with if null
+  if (!primaryBooking.paired_with) {
+    await primaryBooking.update({ paired_with: studentB.roll_number }, { transaction });
+  }
+
+  const newOccupancy = existingBookings.length + 1;
+  const isFullCapacity = newOccupancy >= room.capacity;
+
+  if (isFullCapacity) {
+    // Capacity reached! Lock room and set all occupants to Locked
+    await room.update({
+      status: 'Locked',
+      current_occupancy: newOccupancy,
+      pairing_code: null,
+      code_expiry: null
+    }, { transaction });
+
+    const allBookings = await Booking.findAll({
+      where: { room_id: room.room_id },
+      transaction
+    });
+    const allRolls = allBookings.map(b => b.student_roll);
+
+    await Student.update({
+      booking_status: 'Locked',
+      booked_room_id: room.room_id
+    }, {
+      where: { roll_number: allRolls },
+      transaction
+    });
+
+    await transaction.commit();
+
+    // Clear Redis keys
+    try {
+      if (redisClient && typeof redisClient.del === 'function') {
+        await redisClient.del(`room:code:${room.room_id}`);
+        if (code) await redisClient.del(`code:${code.trim()}`);
+      }
+    } catch (rDelErr) {
+      console.warn('[Redis Del Warning]:', rDelErr.message);
+    }
+
+    // Generate PDF for all occupants and save to PDFHistory
+    const allOccupants = await Student.findAll({
+      where: { roll_number: allRolls },
+      order: [['created_at', 'ASC'], ['roll_number', 'ASC']]
+    });
+
+    const { filePath } = await generateAllocationPDF({
+      hostelName: hostel.name,
+      blockName: room.Floor.Block.name,
+      floorNumber: room.Floor.floor_number,
+      roomNumber: room.room_number,
+      student1: allOccupants[0] || studentA,
+      student2: allOccupants[1] || studentB,
+      student3: allOccupants[2] || null,
+      allocationDate: now
+    });
+
+    for (const occ of allOccupants) {
+      await PDFHistory.update(
+        { is_current: false },
+        { where: { student_roll: occ.roll_number } }
+      );
+      await PDFHistory.create({
+        student_roll: occ.roll_number,
+        room_id: room.room_id,
+        pdf_path: filePath,
+        version: 1,
+        is_swap: false,
+        is_current: true
+      });
+    }
+
+    return {
+      result: {
+        message: `Room ${room.room_number} pairing completed! Room is now locked at full capacity (${newOccupancy}/${room.capacity}).`,
+        redirectToPdf: true,
+        room: {
+          room_id: room.room_id,
+          room_number: room.room_number,
+          status: 'Locked',
+          current_occupancy: newOccupancy,
+          capacity: room.capacity
+        }
+      }
+    };
+  } else {
+    // Room has additional capacity remaining (e.g. 2nd student in a 3-capacity room)
+    await room.update({
+      status: 'Pending_Pairing',
+      current_occupancy: newOccupancy
+      // Keep pairing_code and code_expiry active
+    }, { transaction });
+
+    await Student.update({
+      booking_status: 'Pending_Pairing',
+      booked_room_id: room.room_id
+    }, {
+      where: { roll_number: studentB.roll_number },
+      transaction
+    });
+
+    await transaction.commit();
+
+    return {
+      result: {
+        message: `Joined Room ${room.room_number}! Waiting for ${room.capacity - newOccupancy} more roommate(s) (${newOccupancy}/${room.capacity}).`,
+        redirectToPdf: false,
+        room: {
+          room_id: room.room_id,
+          room_number: room.room_number,
+          status: 'Pending_Pairing',
+          current_occupancy: newOccupancy,
+          capacity: room.capacity
+        }
+      }
+    };
+  }
 }
 
 // Step 1: Primary Student Books Vacant Room & Gets 10-Minute Pairing Code
@@ -94,11 +254,6 @@ async function bookRoom(req, res) {
       return res.status(403).json({ error: 'No active allocation rule permits your programme and year for this room.' });
     }
 
-    if (now < new Date(hostel.start_time) || now > new Date(hostel.end_time)) {
-      if (!transaction.finished) await transaction.rollback();
-      return res.status(403).json({ error: 'Hostel booking time window has expired or is not yet active.' });
-    }
-
     // 4. Generate 6-digit numeric code & 10-minute expiry
     const pairingCode = generatePairingCode();
     const expiryTime = new Date(now.getTime() + 10 * 60 * 1000); // +10 mins
@@ -131,7 +286,7 @@ async function bookRoom(req, res) {
 
     await transaction.commit();
 
-    // 8. Store in Redis key room:code:{roomId} and code:{pairingCode} with 600s TTL (Safely handled)
+    // 8. Store in Redis key room:code:{roomId} and code:{pairingCode} with 600s TTL
     try {
       if (redisClient && typeof redisClient.set === 'function') {
         await redisClient.set(`room:code:${room.room_id}`, pairingCode, 'EX', 600);
@@ -148,7 +303,8 @@ async function bookRoom(req, res) {
       room: {
         room_id: room.room_id,
         room_number: room.room_number,
-        status: 'Pending_Pairing'
+        status: 'Pending_Pairing',
+        capacity: room.capacity
       }
     });
 
@@ -165,7 +321,7 @@ async function bookRoom(req, res) {
   }
 }
 
-// Step 2: Roommate Enters 10-Minute Pairing Code & Locks Room
+// Step 2: Roommate Pairs via Specific Room Endpoint
 async function pairRoom(req, res) {
   let transaction;
   try {
@@ -179,13 +335,11 @@ async function pairRoom(req, res) {
       return res.status(400).json({ error: 'Pairing code is required.' });
     }
 
-    // 1. Verify Student B status
     if (studentB.booking_status !== 'Pending') {
       if (!transaction.finished) await transaction.rollback();
       return res.status(400).json({ error: `You already have an active booking status: ${studentB.booking_status}` });
     }
 
-    // 2. Query Room with row locking
     const room = await Room.findByPk(roomId, {
       transaction,
       ...getLockOption(transaction),
@@ -208,7 +362,6 @@ async function pairRoom(req, res) {
       return res.status(400).json({ error: 'Room is not currently pending roommate pairing.' });
     }
 
-    // 3. Verify Redis TTL & Code
     let redisCode = null;
     try {
       if (redisClient && typeof redisClient.get === 'function') {
@@ -227,7 +380,6 @@ async function pairRoom(req, res) {
       return res.status(400).json({ error: 'Invalid or expired pairing code. Room pairing window (10 minutes) has expired.' });
     }
 
-    // 4. Verify Student B hostel eligibility
     const hostel = room.Floor.Block.Hostel;
     if (hostel.allowed_gender !== studentB.gender) {
       if (!transaction.finished) await transaction.rollback();
@@ -269,92 +421,11 @@ async function pairRoom(req, res) {
       return res.status(403).json({ error: 'Hostel booking window has closed.' });
     }
 
-    // 5. Find Primary Booking (Student A)
-    const primaryBooking = await Booking.findOne({
-      where: {
-        room_id: room.room_id,
-        is_primary: true
-      },
-      transaction
-    });
-
-    if (!primaryBooking) {
-      if (!transaction.finished) await transaction.rollback();
-      return res.status(400).json({ error: 'Primary booking not found for this room.' });
+    const outcome = await executeRoomPairing({ room, studentB, code, transaction, hostel });
+    if (outcome.error) {
+      return res.status(outcome.status || 400).json({ error: outcome.error });
     }
-
-    if (primaryBooking.student_roll === studentB.roll_number) {
-      if (!transaction.finished) await transaction.rollback();
-      return res.status(400).json({ error: 'Primary student cannot pair with themselves.' });
-    }
-
-    const studentA = await Student.findOne({ where: { roll_number: primaryBooking.student_roll }, transaction });
-
-    // 6. Update Primary Booking paired_with
-    await primaryBooking.update({
-      paired_with: studentB.roll_number
-    }, { transaction });
-
-    // 7. Create Secondary Booking for Student B
-    await Booking.create({
-      room_id: room.room_id,
-      student_roll: studentB.roll_number,
-      booking_date: now,
-      is_primary: false,
-      paired_with: studentA.roll_number
-    }, { transaction });
-
-    // 8. Update Room state to Locked and capacity = 2
-    await room.update({
-      status: 'Locked',
-      current_occupancy: 2,
-      pairing_code: null,
-      code_expiry: null
-    }, { transaction });
-
-    // 9. Update Student A & Student B booking_status to Locked
-    await Student.update({
-      booking_status: 'Locked',
-      booked_room_id: room.room_id
-    }, {
-      where: {
-        roll_number: [studentA.roll_number, studentB.roll_number]
-      },
-      transaction
-    });
-
-    await transaction.commit();
-
-    // 10. Delete Redis Keys
-    try {
-      if (redisClient && typeof redisClient.del === 'function') {
-        await redisClient.del(`room:code:${room.room_id}`);
-        await redisClient.del(`code:${code.trim()}`);
-      }
-    } catch (rDelErr) {
-      console.warn('[Redis Del Warning]:', rDelErr.message);
-    }
-
-    // 11. Generate Allocation PDF
-    await generateAllocationPDF({
-      hostelName: hostel.name,
-      blockName: room.Floor.Block.name,
-      floorNumber: room.Floor.floor_number,
-      roomNumber: room.room_number,
-      student1: studentA,
-      student2: studentB,
-      allocationDate: now
-    });
-
-    return res.json({
-      message: 'Room pairing completed successfully! Room is now locked.',
-      redirectToPdf: true,
-      room: {
-        room_id: room.room_id,
-        room_number: room.room_number,
-        status: 'Locked'
-      }
-    });
+    return res.json(outcome.result);
 
   } catch (err) {
     if (transaction && !transaction.finished) {
@@ -382,12 +453,10 @@ async function pairByCode(req, res) {
 
     const cleanCode = code.trim();
 
-    // 1. Verify Student B status
     if (studentB.booking_status !== 'Pending') {
       return res.status(400).json({ error: `You already have an active booking status: ${studentB.booking_status}` });
     }
 
-    // 2. Resolve roomId via Redis or DB lookup
     let roomId = null;
     try {
       if (redisClient && typeof redisClient.get === 'function') {
@@ -417,7 +486,6 @@ async function pairByCode(req, res) {
       });
     }
 
-    // Fallback to database lookup if not found in Redis or if roomId wasn't valid
     if (!room) {
       room = await Room.findOne({
         where: { pairing_code: cleanCode },
@@ -451,7 +519,6 @@ async function pairByCode(req, res) {
       return res.status(400).json({ error: 'Invalid or expired pairing code. Room pairing window (10 minutes) has expired.' });
     }
 
-    // 3. Verify Student B hostel eligibility
     const hostel = room.Floor.Block.Hostel;
     if (hostel.allowed_gender !== studentB.gender) {
       if (!transaction.finished) await transaction.rollback();
@@ -493,92 +560,11 @@ async function pairByCode(req, res) {
       return res.status(403).json({ error: 'Hostel booking window has closed.' });
     }
 
-    // 4. Find Primary Booking (Student A)
-    const primaryBooking = await Booking.findOne({
-      where: {
-        room_id: room.room_id,
-        is_primary: true
-      },
-      transaction
-    });
-
-    if (!primaryBooking) {
-      if (!transaction.finished) await transaction.rollback();
-      return res.status(400).json({ error: 'Primary booking not found for this room.' });
+    const outcome = await executeRoomPairing({ room, studentB, code: cleanCode, transaction, hostel });
+    if (outcome.error) {
+      return res.status(outcome.status || 400).json({ error: outcome.error });
     }
-
-    if (primaryBooking.student_roll === studentB.roll_number) {
-      if (!transaction.finished) await transaction.rollback();
-      return res.status(400).json({ error: 'Primary student cannot pair with themselves.' });
-    }
-
-    const studentA = await Student.findOne({ where: { roll_number: primaryBooking.student_roll }, transaction });
-
-    // 5. Update Primary Booking paired_with
-    await primaryBooking.update({
-      paired_with: studentB.roll_number
-    }, { transaction });
-
-    // 6. Create Secondary Booking for Student B
-    await Booking.create({
-      room_id: room.room_id,
-      student_roll: studentB.roll_number,
-      booking_date: now,
-      is_primary: false,
-      paired_with: studentA.roll_number
-    }, { transaction });
-
-    // 7. Update Room state to Locked and capacity = 2
-    await room.update({
-      status: 'Locked',
-      current_occupancy: 2,
-      pairing_code: null,
-      code_expiry: null
-    }, { transaction });
-
-    // 8. Update Student A & Student B booking_status to Locked
-    await Student.update({
-      booking_status: 'Locked',
-      booked_room_id: room.room_id
-    }, {
-      where: {
-        roll_number: [studentA.roll_number, studentB.roll_number]
-      },
-      transaction
-    });
-
-    await transaction.commit();
-
-    // 9. Delete Redis Keys
-    try {
-      if (redisClient && typeof redisClient.del === 'function') {
-        await redisClient.del(`room:code:${room.room_id}`);
-        await redisClient.del(`code:${cleanCode}`);
-      }
-    } catch (rDelErr) {
-      console.warn('[Redis Del Warning]:', rDelErr.message);
-    }
-
-    // 10. Generate Allocation PDF
-    await generateAllocationPDF({
-      hostelName: hostel.name,
-      blockName: room.Floor.Block.name,
-      floorNumber: room.Floor.floor_number,
-      roomNumber: room.room_number,
-      student1: studentA,
-      student2: studentB,
-      allocationDate: now
-    });
-
-    return res.json({
-      message: 'Room pairing completed successfully! Room is now locked.',
-      redirectToPdf: true,
-      room: {
-        room_id: room.room_id,
-        room_number: room.room_number,
-        status: 'Locked'
-      }
-    });
+    return res.json(outcome.result);
 
   } catch (err) {
     if (transaction && !transaction.finished) {
@@ -598,4 +584,3 @@ module.exports = {
   pairRoom,
   pairByCode
 };
-

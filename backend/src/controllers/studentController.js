@@ -259,17 +259,7 @@ async function downloadAllocationPDF(req, res) {
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
 
-    // Check if current version exists in PDFHistory
-    let latestPdf = await PDFHistory.findOne({
-      where: { student_roll: studentRoll, is_current: true },
-      order: [['version', 'DESC']]
-    });
-
-    if (latestPdf && fs.existsSync(latestPdf.pdf_path)) {
-      return res.download(latestPdf.pdf_path, `Allocation_Certificate_${studentRoll}_v${latestPdf.version}.pdf`);
-    }
-
-    // Fallback: Generate Initial Version (v1) if missing
+    // 1. Fetch the student with room details
     const student = await Student.findOne({
       where: { roll_number: studentRoll },
       include: [
@@ -285,53 +275,132 @@ async function downloadAllocationPDF(req, res) {
       return res.status(400).json({ error: 'No active locked room booking found for PDF download.' });
     }
 
-    const booking = await Booking.findOne({
-      where: { student_roll: studentRoll, room_id: student.booked_room_id }
-    });
-
-    let primaryStudent = student;
-    let secondaryStudent = null;
-
-    if (booking && booking.paired_with) {
-      const pairedStudentObj = await Student.findOne({ where: { roll_number: booking.paired_with } });
-      if (booking.is_primary) {
-        secondaryStudent = pairedStudentObj;
-      } else {
-        primaryStudent = pairedStudentObj;
-        secondaryStudent = student;
-      }
-    }
-
     const room = student.BookedRoom;
     const floor = room.Floor;
     const block = floor.Block;
     const hostel = block.Hostel;
+
+    // 2. Fetch ALL occupants of the room
+    const allOccupants = await Student.findAll({
+      where: { booked_room_id: room.room_id },
+      order: [['created_at', 'ASC'], ['roll_number', 'ASC']]
+    });
+
+    // 3. Extract roll numbers for comparison
+    const occupantRolls = allOccupants.map(s => s.roll_number).sort();
+
+    // 4. Check if a cached PDF exists
+    const latestPdf = await PDFHistory.findOne({
+      where: { student_roll: studentRoll, is_current: true },
+      order: [['version', 'DESC']]
+    });
+
+    // 5. Determine if cached PDF matches current occupants
+    if (latestPdf && fs.existsSync(latestPdf.pdf_path) && req.query.forceRefresh !== 'true') {
+      const cachedEntries = await PDFHistory.findAll({
+        where: { room_id: room.room_id, is_current: true }
+      });
+      const cachedRolls = cachedEntries.map(e => e.student_roll).sort();
+
+      if (JSON.stringify(cachedRolls) === JSON.stringify(occupantRolls)) {
+        return res.download(latestPdf.pdf_path, `Allocation_Certificate_${studentRoll}_v${latestPdf.version}.pdf`);
+      } else {
+        // Occupants changed – delete old cached file
+        try {
+          if (fs.existsSync(latestPdf.pdf_path)) {
+            fs.unlinkSync(latestPdf.pdf_path);
+          }
+        } catch (unlinkErr) {
+          console.warn('Could not delete old PDF:', unlinkErr.message);
+        }
+        await PDFHistory.update(
+          { is_current: false },
+          { where: { room_id: room.room_id } }
+        );
+      }
+    }
+
+    // 6. Generate a fresh PDF with ALL occupants
+    const student1 = allOccupants[0] || student;
+    const student2 = allOccupants[1] || null;
+    const student3 = allOccupants[2] || null;
+
+    const booking = await Booking.findOne({
+      where: { student_roll: studentRoll, room_id: room.room_id }
+    });
+
+    const version = (latestPdf ? latestPdf.version + 1 : 1);
 
     const { filePath } = await generateAllocationPDF({
       hostelName: hostel.name,
       blockName: block.name,
       floorNumber: floor.floor_number,
       roomNumber: room.room_number,
-      student1: primaryStudent,
-      student2: secondaryStudent,
+      student1: student1,
+      student2: student2,
+      student3: student3,
       allocationDate: booking ? booking.booking_date : new Date(),
       isSwap: false,
-      version: 1
+      version: version
     });
 
-    latestPdf = await PDFHistory.create({
-      student_roll: studentRoll,
-      room_id: room.room_id,
-      pdf_path: filePath,
-      version: 1,
-      is_swap: false,
-      is_current: true
-    });
+    // 7. Save PDFHistory entries for ALL occupants
+    for (const occupant of allOccupants) {
+      await PDFHistory.update(
+        { is_current: false },
+        { where: { student_roll: occupant.roll_number } }
+      );
+      await PDFHistory.create({
+        student_roll: occupant.roll_number,
+        room_id: room.room_id,
+        pdf_path: filePath,
+        version: version,
+        is_swap: false,
+        is_current: true
+      });
+    }
 
-    return res.download(filePath, `Allocation_Certificate_${studentRoll}_v1.pdf`);
+    // 8. Serve the new PDF
+    return res.download(filePath, `Allocation_Certificate_${studentRoll}_v${version}.pdf`);
+
   } catch (err) {
     console.error('Error in downloadAllocationPDF:', err);
     return res.status(500).json({ error: 'Failed to generate and download allocation PDF.' });
+  }
+}
+
+// Get Room Occupants & Live Details for RoomStatusCard
+async function getRoomOccupants(req, res) {
+  try {
+    const { roomId } = req.params;
+
+    const room = await Room.findByPk(roomId, {
+      include: [
+        {
+          model: Floor,
+          include: [{ model: Block, include: [Hostel] }]
+        }
+      ]
+    });
+
+    if (!room) {
+      return res.status(404).json({ error: 'Room not found.' });
+    }
+
+    const occupants = await Student.findAll({
+      where: { booked_room_id: roomId },
+      attributes: ['roll_number', 'full_name', 'email', 'gender', 'programme', 'year', 'booking_status'],
+      order: [['created_at', 'ASC'], ['roll_number', 'ASC']]
+    });
+
+    return res.json({
+      success: true,
+      room,
+      occupants
+    });
+  } catch (err) {
+    console.error('Error in getRoomOccupants:', err);
+    return res.status(500).json({ error: 'Failed to fetch room occupants.' });
   }
 }
 
@@ -341,5 +410,6 @@ module.exports = {
   getHostelBlocks,
   getBlockFloors,
   getFloorRooms,
-  downloadAllocationPDF
+  downloadAllocationPDF,
+  getRoomOccupants
 };

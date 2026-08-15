@@ -36,27 +36,28 @@ function initExpiryCronJob() {
             current_occupancy: 0
           }, { transaction });
 
-          // 2. Find primary booking associated with this room
-          const primaryBooking = await Booking.findOne({
-            where: {
-              room_id: room.room_id,
-              is_primary: true
-            },
+          // 2. Find all bookings associated with this room
+          const roomBookings = await Booking.findAll({
+            where: { room_id: room.room_id },
             transaction
           });
+          const rollsInRoom = roomBookings.map(b => b.student_roll);
 
-          if (primaryBooking) {
-            // Reset student's booking_status & booked_room_id
+          if (rollsInRoom.length > 0) {
+            // Reset students' booking_status & booked_room_id
             await Student.update({
               booking_status: 'Pending',
               booked_room_id: null
             }, {
-              where: { roll_number: primaryBooking.student_roll },
+              where: { roll_number: rollsInRoom },
               transaction
             });
 
-            // Delete primary booking record
-            await primaryBooking.destroy({ transaction });
+            // Delete booking records
+            await Booking.destroy({
+              where: { room_id: room.room_id },
+              transaction
+            });
           }
 
           await transaction.commit();

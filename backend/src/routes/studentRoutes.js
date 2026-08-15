@@ -7,7 +7,8 @@ const {
   getHostelBlocks,
   getBlockFloors,
   getFloorRooms,
-  downloadAllocationPDF
+  downloadAllocationPDF,
+  getRoomOccupants
 } = require('../controllers/studentController');
 const { bookRoom, pairRoom, pairByCode } = require('../controllers/bookingController');
 
@@ -19,6 +20,7 @@ router.get('/hostels', getEligibleHostels);
 router.get('/blocks/:hostelId', getHostelBlocks);
 router.get('/floors/:blockId', getBlockFloors);
 router.get('/rooms/:floorId', getFloorRooms);
+router.get('/room/:roomId/occupants', getRoomOccupants);
 router.post('/rooms/:roomId/book', bookRoom);
 router.post('/rooms/:roomId/pair', pairRoom);
 router.post('/pair-by-code', pairByCode);

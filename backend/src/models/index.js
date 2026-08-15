@@ -325,6 +325,24 @@ const SwapRequest = sequelize.define('SwapRequest', {
       }
     }
   },
+  movers: {
+    type: DataTypes.JSON,
+    defaultValue: {},
+    get() {
+      const raw = this.getDataValue('movers');
+      if (typeof raw === 'string') {
+        try { return JSON.parse(raw); } catch { return {}; }
+      }
+      return raw || {};
+    },
+    set(value) {
+      if (typeof value === 'object' && value !== null) {
+        this.setDataValue('movers', JSON.stringify(value));
+      } else {
+        this.setDataValue('movers', value);
+      }
+    }
+  },
   old_pdf_paths: {
     type: DataTypes.JSON,
     defaultValue: {}

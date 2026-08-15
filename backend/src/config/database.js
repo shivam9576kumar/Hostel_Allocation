@@ -57,9 +57,14 @@ async function syncDatabaseSchema() {
         await sequelize.query("ALTER TABLE swap_requests ADD COLUMN new_pdf_paths TEXT DEFAULT '{}';");
         console.log('[Database Schema Sync] Added column new_pdf_paths to swap_requests.');
       }
+      if (!columns.includes('movers')) {
+        await sequelize.query("ALTER TABLE swap_requests ADD COLUMN movers TEXT DEFAULT '{}';");
+        console.log('[Database Schema Sync] Added column movers to swap_requests.');
+      }
     } else if (dialect === 'postgres') {
       await sequelize.query("ALTER TABLE swap_requests ADD COLUMN IF NOT EXISTS old_pdf_paths JSONB DEFAULT '{}';");
       await sequelize.query("ALTER TABLE swap_requests ADD COLUMN IF NOT EXISTS new_pdf_paths JSONB DEFAULT '{}';");
+      await sequelize.query("ALTER TABLE swap_requests ADD COLUMN IF NOT EXISTS movers JSONB DEFAULT '{}';");
       console.log('[Database Schema Sync] Verified postgres swap_requests columns.');
     }
   } catch (err) {

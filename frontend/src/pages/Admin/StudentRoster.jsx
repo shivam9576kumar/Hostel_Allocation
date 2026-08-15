@@ -31,10 +31,21 @@ const StudentRoster = () => {
           params[key] = value;
         }
       });
+
       const response = await api.get('/admin/students', { params });
-      setStudents(response.data.students || []);
+
+      // Log for debugging
+      console.log('📊 API Response:', response.data);
+
+      // Safe extraction – handles multiple response structures
+      const studentData = response.data?.data ||       // { data: [...] }
+                         response.data?.students ||    // { students: [...] }
+                         response.data;                // [...] directly
+
+      setStudents(Array.isArray(studentData) ? studentData : []);
     } catch (error) {
-      console.error('Error fetching students:', error);
+      console.error('❌ Error fetching students:', error);
+      setStudents([]);
     } finally {
       setLoading(false);
     }

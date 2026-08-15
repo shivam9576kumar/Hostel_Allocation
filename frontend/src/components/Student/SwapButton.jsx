@@ -5,10 +5,10 @@ const SwapButton = ({ onClick }) => {
   return (
     <button
       onClick={onClick}
-      className="py-2.5 px-5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 active:scale-95 text-slate-950 font-bold rounded-xl shadow-md transition flex items-center gap-2 text-sm"
+      className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-sm font-bold transition flex items-center gap-2 shadow-sm shadow-amber-600/20"
     >
       <ArrowLeftRight className="w-4 h-4" />
-      Request Room Swap
+      Swap Room
     </button>
   );
 };
