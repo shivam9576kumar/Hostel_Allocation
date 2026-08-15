@@ -84,24 +84,41 @@ const Hostel = sequelize.define('Hostel', {
     type: DataTypes.STRING(100),
     allowNull: false
   },
-  allowed_gender: {
-    type: DataTypes.STRING(10),
-    allowNull: false
-  },
-  start_time: {
-    type: DataTypes.DATE,
-    allowNull: false
-  },
-  end_time: {
-    type: DataTypes.DATE,
-    allowNull: false
-  },
   created_at: {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW
   }
 }, {
   tableName: 'hostels'
+});
+
+const GlobalSetting = sequelize.define('GlobalSetting', {
+  id: {
+    type: DataTypes.INTEGER,
+    primaryKey: true,
+    autoIncrement: true
+  },
+  booking_start_time: {
+    type: DataTypes.DATE,
+    allowNull: true,
+    defaultValue: null
+  },
+  booking_end_time: {
+    type: DataTypes.DATE,
+    allowNull: true,
+    defaultValue: null
+  },
+  created_at: {
+    type: DataTypes.DATE,
+    defaultValue: DataTypes.NOW
+  },
+  updated_at: {
+    type: DataTypes.DATE,
+    defaultValue: DataTypes.NOW
+  }
+}, {
+  tableName: 'global_settings',
+  timestamps: false
 });
 
 const AllocationRule = sequelize.define('AllocationRule', {
@@ -136,6 +153,16 @@ const AllocationRule = sequelize.define('AllocationRule', {
     type: DataTypes.INTEGER,
     allowNull: false,
     defaultValue: 999
+  },
+  gender: {
+    type: DataTypes.STRING(10),
+    allowNull: true,
+    defaultValue: 'Female'
+  },
+  capacity: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    defaultValue: 2
   },
   created_at: {
     type: DataTypes.DATE,
@@ -460,5 +487,6 @@ module.exports = {
   Booking,
   SwapRequest,
   PDFHistory,
-  AllocationRule
+  AllocationRule,
+  GlobalSetting
 };

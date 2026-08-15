@@ -1,8 +1,14 @@
 import React from 'react';
-import BulkFloorManager from './BulkFloorManager';
+import FloorsManagement from './FloorsManagement';
 
-const FloorManager = () => {
-  return <BulkFloorManager />;
+const FloorManager = ({ initialBlock, onBackToBlocks, onNavigateToRooms }) => {
+  return (
+    <FloorsManagement
+      initialBlock={initialBlock}
+      onBackToBlocks={onBackToBlocks}
+      onNavigateToRooms={onNavigateToRooms}
+    />
+  );
 };
 
 export default FloorManager;

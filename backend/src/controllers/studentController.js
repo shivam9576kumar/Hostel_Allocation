@@ -32,32 +32,36 @@ async function getStudentDashboard(req, res) {
       order: [['version', 'DESC']]
     });
 
-    // Find eligible active hostels if not locked
+    // Find eligible hostels if not locked based on Global Settings & Allocation Rules
+    const { GlobalSetting } = require('../models');
     const now = new Date();
     let eligibleHostels = [];
-    if (!isLocked) {
-      const activeHostels = await Hostel.findAll({
-        where: {
-          allowed_gender: student.gender,
-          start_time: { [Op.lte]: now },
-          end_time: { [Op.gte]: now }
-        },
-        order: [['name', 'ASC']]
-      });
 
-      for (const hostel of activeHostels) {
-        const ruleCount = await AllocationRule.count({
-          where: {
-            hostel_id: hostel.hostel_id,
-            programme: student.programme,
-            [Op.or]: [
-              { allowed_year: student.year },
-              { allowed_year: null }
-            ]
-          }
+    if (!isLocked) {
+      const settings = await GlobalSetting.findOne({ where: { id: 1 } });
+      const isWindowActive = settings && settings.booking_start_time && settings.booking_end_time
+        ? (now >= new Date(settings.booking_start_time) && now <= new Date(settings.booking_end_time))
+        : true; // Default to true if not strictly set
+
+      if (isWindowActive) {
+        const allHostels = await Hostel.findAll({
+          order: [['name', 'ASC']]
         });
-        if (ruleCount > 0) {
-          eligibleHostels.push(hostel);
+
+        for (const hostel of allHostels) {
+          const ruleCount = await AllocationRule.count({
+            where: {
+              hostel_id: hostel.hostel_id,
+              programme: student.programme,
+              [Op.and]: [
+                { [Op.or]: [{ gender: student.gender }, { gender: null }] },
+                { [Op.or]: [{ allowed_year: student.year }, { allowed_year: null }] }
+              ]
+            }
+          });
+          if (ruleCount > 0) {
+            eligibleHostels.push(hostel);
+          }
         }
       }
     }
@@ -83,26 +87,31 @@ async function getStudentDashboard(req, res) {
 async function getEligibleHostels(req, res) {
   try {
     const student = req.student;
+    const { GlobalSetting } = require('../models');
     const now = new Date();
 
-    const activeHostels = await Hostel.findAll({
-      where: {
-        allowed_gender: student.gender,
-        start_time: { [Op.lte]: now },
-        end_time: { [Op.gte]: now }
-      },
+    const settings = await GlobalSetting.findOne({ where: { id: 1 } });
+    const isWindowActive = settings && settings.booking_start_time && settings.booking_end_time
+      ? (now >= new Date(settings.booking_start_time) && now <= new Date(settings.booking_end_time))
+      : true;
+
+    if (!isWindowActive) {
+      return res.status(403).json({ error: 'Global booking window is currently closed.' });
+    }
+
+    const allHostels = await Hostel.findAll({
       order: [['name', 'ASC']]
     });
 
     const hostels = [];
-    for (const hostel of activeHostels) {
+    for (const hostel of allHostels) {
       const ruleCount = await AllocationRule.count({
         where: {
           hostel_id: hostel.hostel_id,
           programme: student.programme,
-          [Op.or]: [
-            { allowed_year: student.year },
-            { allowed_year: null }
+          [Op.and]: [
+            { [Op.or]: [{ gender: student.gender }, { gender: null }] },
+            { [Op.or]: [{ allowed_year: student.year }, { allowed_year: null }] }
           ]
         }
       });
@@ -123,30 +132,20 @@ async function getHostelBlocks(req, res) {
   try {
     const { hostelId } = req.params;
     const student = req.student;
-    const now = new Date();
 
-    // Verify hostel is valid, gender matches, and within active time window
-    const hostel = await Hostel.findOne({
-      where: {
-        hostel_id: hostelId,
-        allowed_gender: student.gender,
-        start_time: { [Op.lte]: now },
-        end_time: { [Op.gte]: now }
-      }
-    });
-
+    const hostel = await Hostel.findByPk(hostelId);
     if (!hostel) {
-      return res.status(403).json({ error: 'Hostel is unavailable or does not match eligibility criteria / active time window.' });
+      return res.status(404).json({ error: 'Hostel not found.' });
     }
 
-    // Check rules for student's programme and year
+    // Check rules for student's programme, gender, and year
     const rules = await AllocationRule.findAll({
       where: {
         hostel_id: hostelId,
         programme: student.programme,
-        [Op.or]: [
-          { allowed_year: student.year },
-          { allowed_year: null }
+        [Op.and]: [
+          { [Op.or]: [{ gender: student.gender }, { gender: null }] },
+          { [Op.or]: [{ allowed_year: student.year }, { allowed_year: null }] }
         ]
       }
     });
@@ -222,28 +221,48 @@ async function getBlockFloors(req, res) {
   }
 }
 
-// Get Non-Reserved Rooms of a Floor with Statuses
+// Get Non-Reserved Rooms of a Floor with Minimal Attributes & Capacity Filter
 async function getFloorRooms(req, res) {
   try {
     const { floorId } = req.params;
+    const student = req.student;
 
-    const floor = await Floor.findOne({
-      where: { floor_id: floorId, is_reserved: false }
+    const floor = await Floor.findByPk(floorId, {
+      include: [{ model: Block }]
     });
 
-    if (!floor) {
+    if (!floor || floor.is_reserved) {
       return res.status(404).json({ error: 'Floor is reserved or not found.' });
     }
 
-    const rooms = await Room.findAll({
+    const rule = await AllocationRule.findOne({
       where: {
-        floor_id: floorId,
-        is_reserved: false
-      },
+        hostel_id: floor.Block.hostel_id,
+        block_id: floor.Block.block_id,
+        programme: student.programme,
+        [Op.and]: [
+          { [Op.or]: [{ gender: student.gender }, { gender: null }] },
+          { [Op.or]: [{ allowed_year: student.year }, { allowed_year: null }] }
+        ]
+      }
+    });
+
+    const whereClause = {
+      floor_id: floorId,
+      is_reserved: false
+    };
+
+    if (rule && rule.capacity) {
+      whereClause.capacity = rule.capacity;
+    }
+
+    const rooms = await Room.findAll({
+      where: whereClause,
+      attributes: ['room_id', 'room_number', 'status', 'capacity', 'current_occupancy'],
       order: [['room_number', 'ASC']]
     });
 
-    return res.json({ rooms });
+    return res.json({ success: true, rooms });
   } catch (err) {
     console.error('Error in getFloorRooms:', err);
     return res.status(500).json({ error: 'Failed to fetch rooms.' });

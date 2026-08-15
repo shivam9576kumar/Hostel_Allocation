@@ -47,8 +47,8 @@ const BookingModal = ({ room, onClose, onConfirmBooking, bookingResult }) => {
               <ShieldCheck className="w-8 h-8" />
             </div>
             <h2 className="text-xl font-bold text-slate-900">Confirm Room Selection</h2>
-            <p className="text-sm text-slate-600 mt-2">
-              You are selecting <strong className="text-slate-900">Room {room?.room_number}</strong>. Booking this room will generate a temporary 10-minute pairing code for your roommate{(room?.capacity || 2) > 2 ? 's' : ''}.
+            <p className="text-xs text-slate-500 mt-2">
+              You will receive a 6-digit pairing code. Share it with your roommate(s) within 10 minutes.
             </p>
 
             <div className="my-6 bg-slate-50 rounded-2xl p-4 border border-slate-200 text-sm space-y-2">
@@ -69,7 +69,7 @@ const BookingModal = ({ room, onClose, onConfirmBooking, bookingResult }) => {
             <div className="flex gap-3">
               <button
                 onClick={onClose}
-                className="flex-1 py-3 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-xl transition"
+                className="flex-1 py-3 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-xl transition text-sm"
               >
                 Cancel
               </button>
@@ -80,9 +80,9 @@ const BookingModal = ({ room, onClose, onConfirmBooking, bookingResult }) => {
                   setLoading(false);
                 }}
                 disabled={loading}
-                className="flex-1 py-3 px-4 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-xl shadow-lg shadow-emerald-600/30 transition disabled:opacity-50"
+                className="flex-1 py-3 px-4 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-xl shadow-lg shadow-blue-600/30 transition disabled:opacity-50 text-sm"
               >
-                {loading ? 'Generating Code...' : 'Confirm & Book'}
+                {loading ? 'Generating Code...' : 'Confirm & Book →'}
               </button>
             </div>
           </div>

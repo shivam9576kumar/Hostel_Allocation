@@ -8,15 +8,16 @@ import {
   bookRoom, 
   pairRoom 
 } from '../../api/student';
-import CascadingDropdown from './CascadingDropdown';
+import HostelList from './HostelList';
+import BlockList from './BlockList';
+import FloorList from './FloorList';
 import RoomGrid from './RoomGrid';
 import BookingModal from './BookingModal';
 import PairCodeModal from './PairCodeModal';
 import PairCodeEntry from './PairCodeEntry';
-import PDFView from './PDFView';
 import RoomStatusCard from './RoomStatusCard';
 import toast from 'react-hot-toast';
-import { LogOut, User, Building2, CheckCircle, ShieldAlert } from 'lucide-react';
+import { LogOut, User, Building2, CheckCircle, ShieldAlert, ArrowLeft, RefreshCw } from 'lucide-react';
 
 const Dashboard = () => {
   const { user, logout, updateUser } = useAuth();
@@ -53,7 +54,15 @@ const Dashboard = () => {
         setHostels(res.data.eligibleHostels);
       }
     } catch (err) {
-      setError(err.response?.data?.error || 'Failed to load dashboard data.');
+      if (err.code === 'ERR_NETWORK' || err.message === 'Network Error') {
+        const netErrMsg = 'Cannot connect to server. Please ensure the backend is running on http://localhost:5000.';
+        setError(netErrMsg);
+        toast.error(netErrMsg);
+      } else {
+        const errMsg = err.response?.data?.error || 'Failed to load dashboard data.';
+        setError(errMsg);
+        toast.error(errMsg);
+      }
     } finally {
       setLoading(false);
     }
@@ -117,7 +126,7 @@ const Dashboard = () => {
     }
   };
 
-  // Reset Cascading Choices
+  // Reset Selection
   const handleReset = () => {
     setSelectedHostel('');
     setSelectedBlock('');
@@ -138,11 +147,11 @@ const Dashboard = () => {
     } else if (room.status === 'Pending_Pairing') {
       setSelectedRoomForPairing(room);
     } else if (room.status === 'Locked') {
-      alert(`Room ${room.room_number} is already locked and fully occupied.`);
+      toast.error('Room is already locked and fully occupied.');
     }
   };
 
-  // Primary Booking API Call (Step 1)
+  // Primary Booking API Call
   const handleConfirmPrimaryBooking = async () => {
     if (!selectedRoomForBooking) return;
     try {
@@ -156,7 +165,7 @@ const Dashboard = () => {
     }
   };
 
-  // Secondary Pairing API Call (Step 2)
+  // Secondary Pairing API Call
   const handleSubmitPairCode = async (code) => {
     if (!selectedRoomForPairing) return;
     try {
@@ -170,6 +179,10 @@ const Dashboard = () => {
     }
   };
 
+  const selectedHostelObj = hostels.find(h => String(h.hostel_id) === String(selectedHostel));
+  const selectedBlockObj = blocks.find(b => String(b.block_id) === String(selectedBlock));
+  const selectedFloorObj = floors.find(f => String(f.floor_id) === String(selectedFloor));
+
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center text-slate-300">
@@ -180,8 +193,6 @@ const Dashboard = () => {
       </div>
     );
   }
-
-  // Note: RoomStatusCard is rendered in main dashboard for Pending_Pairing and Locked statuses
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900">
@@ -210,55 +221,31 @@ const Dashboard = () => {
       </header>
 
       {/* Main Student Portal Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
         
-        {/* Profile & Eligibility Summary Banner */}
-        <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200 mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="flex items-center gap-4">
-            <div className="w-14 h-14 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center border border-blue-100 shrink-0">
-              <User className="w-7 h-7" />
+        {/* User Profile & Eligibility Banner */}
+        <div className="space-y-3">
+          <div className="flex items-center gap-4 bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
+            <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center text-blue-700 font-bold text-xl shrink-0 border border-blue-200">
+              {user?.full_name?.charAt(0) || 'S'}
             </div>
             <div>
               <h1 className="text-xl font-bold text-slate-900">{user?.full_name}</h1>
-              <div className="flex flex-wrap items-center gap-2 mt-1 text-xs text-slate-600 font-medium">
-                <span className="bg-slate-100 px-2.5 py-1 rounded-md border border-slate-200">Roll: {user?.roll_number}</span>
-                <span className="bg-slate-100 px-2.5 py-1 rounded-md border border-slate-200">Gender: {user?.gender}</span>
-                <span className="bg-blue-50 text-blue-700 px-2.5 py-1 rounded-md border border-blue-200 font-semibold">{user?.programme} - Year {user?.year}</span>
-              </div>
+              <p className="text-sm text-slate-500">Roll: {user?.roll_number} | {user?.gender} | {user?.programme} - Year {user?.year}</p>
             </div>
           </div>
 
-          {/* DYNAMIC ELIGIBILITY BANNER */}
-          {user?.booked_room_id || user?.booking_status === 'Locked' || user?.booking_status === 'Pending_Pairing' ? (
-            <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 flex items-center gap-3">
-              <CheckCircle className="w-5 h-5 text-blue-600 shrink-0" />
-              <div className="text-xs text-blue-900">
-                <span className="font-bold block">Active Room Booking Confirmed</span>
-                <span>Status: {user?.booking_status === 'Locked' ? 'Locked • Official Allocation Certificate Ready' : 'Pending Roommate Pairing'}</span>
-              </div>
-            </div>
-          ) : hostels.length > 0 ? (
-            <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 flex items-center gap-3">
-              <CheckCircle className="w-5 h-5 text-emerald-600 shrink-0" />
-              <div className="text-xs text-emerald-900">
-                <span className="font-bold block">Eligibility Verification Passed</span>
-                <span>Matching active hostel time windows & program constraints.</span>
-              </div>
-            </div>
-          ) : (
-            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-center gap-3">
-              <ShieldAlert className="w-5 h-5 text-amber-600 shrink-0" />
-              <div className="text-xs text-amber-900">
-                <span className="font-bold block">No Eligible Hostels Found</span>
-                <span>You do not match any active hostel eligibility requirements.</span>
-              </div>
-            </div>
-          )}
+          <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 flex items-center gap-2">
+            <span className="text-emerald-600 text-lg shrink-0">✅</span>
+            <span className="text-sm text-emerald-800 font-medium">
+              Eligibility Verification Passed – Matching active hostel time windows & program constraints.
+            </span>
+          </div>
         </div>
 
         {/* Global Error Banner */}
         {error && (
-          <div className="mb-6 p-4 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm flex items-center gap-2">
+          <div className="p-4 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm flex items-center gap-2">
             <ShieldAlert className="w-5 h-5 shrink-0" />
             <span>{error}</span>
           </div>
@@ -277,25 +264,98 @@ const Dashboard = () => {
             {/* Instant Code Entry Shortcut */}
             <PairCodeEntry onPairSuccess={fetchDashboard} />
 
-            {/* Cascading Dropdown Selector */}
-            <CascadingDropdown
-              hostels={hostels}
-              blocks={blocks}
-              floors={floors}
-              selectedHostel={selectedHostel}
-              selectedBlock={selectedBlock}
-              selectedFloor={selectedFloor}
-              onSelectHostel={handleSelectHostel}
-              onSelectBlock={handleSelectBlock}
-              onSelectFloor={handleSelectFloor}
-              onReset={handleReset}
-            />
+            {/* Selection Flow Container */}
+            <div className="space-y-6">
 
-            {/* Room Grid */}
-            <RoomGrid
-              rooms={rooms}
-              onSelectRoom={handleRoomClick}
-            />
+              {/* 1. Hostels */}
+              {!selectedHostel && (
+                <HostelList
+                  hostels={hostels}
+                  onSelect={handleSelectHostel}
+                  selectedHostel={selectedHostel}
+                />
+              )}
+
+              {/* 2. Blocks */}
+              {selectedHostel && !selectedBlock && (
+                <BlockList
+                  blocks={blocks}
+                  onSelect={handleSelectBlock}
+                  selectedBlock={selectedBlock}
+                  hostelName={selectedHostelObj?.name || 'Hostel'}
+                />
+              )}
+
+              {/* 3. Floors */}
+              {selectedHostel && selectedBlock && !selectedFloor && (
+                <FloorList
+                  floors={floors}
+                  onSelect={handleSelectFloor}
+                  selectedFloor={selectedFloor}
+                  hostelName={selectedHostelObj?.name || 'Hostel'}
+                  blockName={selectedBlockObj?.name || 'Block'}
+                />
+              )}
+
+              {/* 4. Rooms Grid */}
+              {selectedHostel && selectedBlock && selectedFloor && (
+                <div className="space-y-4">
+                  {/* Breadcrumb Navigation Header */}
+                  <div className="bg-white p-4 rounded-2xl border border-slate-200 flex items-center justify-between shadow-sm">
+                    <div className="flex items-center gap-2 text-sm font-bold text-slate-800 flex-wrap">
+                      <span>🏠 {selectedHostelObj?.name || 'Hostel'}</span>
+                      <span className="text-slate-400">→</span>
+                      <span>{selectedBlockObj?.name || 'Block'}</span>
+                      <span className="text-slate-400">→</span>
+                      <span className="text-blue-600">Floor {selectedFloorObj?.floor_number ?? selectedFloor}</span>
+                    </div>
+
+                    <button
+                      onClick={handleReset}
+                      className="text-xs text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1 transition shrink-0"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      Reset Choices
+                    </button>
+                  </div>
+
+                  <RoomGrid
+                    rooms={rooms}
+                    onSelectRoom={handleRoomClick}
+                  />
+                </div>
+              )}
+
+              {/* Back / Reset Navigation Button */}
+              {selectedHostel && (
+                <div className="pt-2 flex items-center justify-between">
+                  <button
+                    onClick={() => {
+                      if (selectedFloor) {
+                        setSelectedFloor('');
+                        setRooms([]);
+                      } else if (selectedBlock) {
+                        setSelectedBlock('');
+                        setFloors([]);
+                      } else if (selectedHostel) {
+                        setSelectedHostel('');
+                        setBlocks([]);
+                      }
+                    }}
+                    className="text-xs text-slate-600 hover:text-blue-600 font-semibold flex items-center gap-1 bg-white px-3 py-1.5 rounded-lg border border-slate-200 transition"
+                  >
+                    <ArrowLeft className="w-3.5 h-3.5" /> Back to Previous Step
+                  </button>
+
+                  <button
+                    onClick={handleReset}
+                    className="text-xs text-blue-600 hover:text-blue-800 font-medium transition"
+                  >
+                    ← Reset Choices
+                  </button>
+                </div>
+              )}
+            </div>
           </>
         )}
 

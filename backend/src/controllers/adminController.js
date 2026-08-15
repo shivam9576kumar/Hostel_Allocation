@@ -25,10 +25,7 @@ async function uploadStudents(req, res) {
 // 2. List Hostels
 async function getHostels(req, res) {
   try {
-    const { gender } = req.query;
     const where = {};
-
-    if (gender && gender !== 'ALL') where.allowed_gender = gender;
 
     const hostels = await Hostel.findAll({
       where,
@@ -53,23 +50,17 @@ async function getHostels(req, res) {
   }
 }
 
-// 3. Create Hostel
+// 3. Create Hostel (ONLY Hostel Name)
 async function createHostel(req, res) {
   try {
-    const { name, allowed_gender, gender, start_time, startTime, end_time, endTime } = req.body;
-    const targetGender = allowed_gender || gender;
-    const targetStartTime = start_time || startTime;
-    const targetEndTime = end_time || endTime;
+    const { name } = req.body;
 
-    if (!name || !targetGender || !targetStartTime || !targetEndTime) {
-      return res.status(400).json({ error: 'Hostel name, gender, and time window parameters are required.' });
+    if (!name) {
+      return res.status(400).json({ error: 'Hostel name is required.' });
     }
 
     const hostel = await Hostel.create({
-      name,
-      allowed_gender: targetGender,
-      start_time: new Date(targetStartTime),
-      end_time: new Date(targetEndTime)
+      name
     });
 
     return res.status(201).json({ message: 'Hostel created successfully.', hostel });
@@ -79,14 +70,11 @@ async function createHostel(req, res) {
   }
 }
 
-// 4. Update Hostel Details / Settings
+// 4. Update Hostel Details
 async function updateHostel(req, res) {
   try {
     const { id } = req.params;
-    const { name, allowed_gender, gender, start_time, startTime, end_time, endTime } = req.body;
-    const targetGender = allowed_gender || gender;
-    const targetStartTime = start_time || startTime;
-    const targetEndTime = end_time || endTime;
+    const { name } = req.body;
 
     const hostel = await Hostel.findByPk(id);
     if (!hostel) {
@@ -94,10 +82,7 @@ async function updateHostel(req, res) {
     }
 
     await hostel.update({
-      name: name || hostel.name,
-      allowed_gender: targetGender || hostel.allowed_gender,
-      start_time: targetStartTime ? new Date(targetStartTime) : hostel.start_time,
-      end_time: targetEndTime ? new Date(targetEndTime) : hostel.end_time
+      name: name || hostel.name
     });
 
     return res.json({ message: 'Hostel updated successfully.', hostel });
@@ -938,7 +923,7 @@ async function getAllocationRules(req, res) {
     const rules = await AllocationRule.findAll({
       where,
       include: [
-        { model: Hostel, attributes: ['hostel_id', 'name', 'allowed_gender'] },
+        { model: Hostel, attributes: ['hostel_id', 'name'] },
         { model: Block, attributes: ['block_id', 'name', 'is_reserved'] }
       ],
       order: [['hostel_id', 'ASC'], ['programme', 'ASC'], ['allowed_year', 'ASC'], ['block_id', 'ASC']]
@@ -953,7 +938,7 @@ async function getAllocationRules(req, res) {
 
 async function createAllocationRule(req, res) {
   try {
-    const { hostel_id, hostelId, programme, allowed_year, allowedYear, year, block_id, blockId, floor_start, floorStart, floor_end, floorEnd } = req.body;
+    const { hostel_id, hostelId, programme, allowed_year, allowedYear, year, block_id, blockId, floor_start, floorStart, floor_end, floorEnd, gender, capacity } = req.body;
     const targetHostelId = hostel_id || hostelId;
     const targetBlockId = block_id || blockId;
     const start = floor_start !== undefined ? parseInt(floor_start, 10) : (floorStart !== undefined ? parseInt(floorStart, 10) : 0);
@@ -966,6 +951,10 @@ async function createAllocationRule(req, res) {
       return res.status(400).json({ error: 'Missing required fields: hostel_id, programme, block_id' });
     }
 
+    if (parsedYear === null || isNaN(parsedYear) || parsedYear < 1 || parsedYear > 5) {
+      return res.status(400).json({ error: 'Year selection is required (1st, 2nd, 3rd, 4th, or 5th Year).' });
+    }
+
     if (isNaN(start) || isNaN(end) || start > end || start < 0) {
       return res.status(400).json({ error: 'Valid floor range (start <= end, start >= 0) is required' });
     }
@@ -976,18 +965,40 @@ async function createAllocationRule(req, res) {
     const block = await Block.findOne({ where: { block_id: targetBlockId, hostel_id: targetHostelId } });
     if (!block) return res.status(404).json({ error: 'Block does not belong to the selected hostel' });
 
+    // Floor Reservation Overlap Prevention Check
+    const existingBlockRules = await AllocationRule.findAll({
+      where: { block_id: targetBlockId }
+    });
+
+    const overlappingRule = existingBlockRules.find(r => 
+      start <= r.floor_end && end >= r.floor_start
+    );
+
+    if (overlappingRule) {
+      const overlapStart = Math.max(start, overlappingRule.floor_start);
+      const overlapEnd = Math.min(end, overlappingRule.floor_end);
+      const overlapText = overlapStart === overlapEnd ? `Floor ${overlapStart}` : `Floors ${overlapStart}–${overlapEnd}`;
+      const ruleYearText = overlappingRule.allowed_year ? `${overlappingRule.allowed_year}th Year` : 'All Years';
+      
+      return res.status(400).json({ 
+        error: `${overlapText} is already allocated to ${overlappingRule.programme} (${ruleYearText}). Please select different floors.` 
+      });
+    }
+
     const rule = await AllocationRule.create({
       hostel_id: targetHostelId,
       programme,
       allowed_year: parsedYear,
       block_id: targetBlockId,
       floor_start: start,
-      floor_end: end
+      floor_end: end,
+      gender: gender || 'Female',
+      capacity: capacity ? parseInt(capacity, 10) : 2
     });
 
     const fullRule = await AllocationRule.findByPk(rule.rule_id, {
       include: [
-        { model: Hostel, attributes: ['hostel_id', 'name', 'allowed_gender'] },
+        { model: Hostel, attributes: ['hostel_id', 'name'] },
         { model: Block, attributes: ['block_id', 'name', 'is_reserved'] }
       ]
     });
@@ -1002,17 +1013,23 @@ async function createAllocationRule(req, res) {
 async function updateAllocationRule(req, res) {
   try {
     const { ruleId } = req.params;
-    const { programme, allowed_year, allowedYear, year, block_id, blockId, floor_start, floorStart, floor_end, floorEnd } = req.body;
+    const { programme, allowed_year, allowedYear, year, block_id, blockId, floor_start, floorStart, floor_end, floorEnd, gender, capacity } = req.body;
 
     const rule = await AllocationRule.findByPk(ruleId);
     if (!rule) return res.status(404).json({ error: 'Allocation rule not found' });
 
     if (programme) rule.programme = programme;
     if (block_id || blockId) rule.block_id = block_id || blockId;
+    if (gender) rule.gender = gender;
+    if (capacity) rule.capacity = parseInt(capacity, 10);
 
     const rawYear = allowed_year !== undefined ? allowed_year : (allowedYear !== undefined ? allowedYear : year);
     if (rawYear !== undefined) {
       rule.allowed_year = (rawYear === null || rawYear === '' || rawYear === 'ALL') ? null : parseInt(rawYear, 10);
+    }
+
+    if (rule.allowed_year === null || isNaN(rule.allowed_year) || rule.allowed_year < 1 || rule.allowed_year > 5) {
+      return res.status(400).json({ error: 'Year selection is required (1st, 2nd, 3rd, 4th, or 5th Year).' });
     }
 
     if (floor_start !== undefined || floorStart !== undefined) {
@@ -1026,11 +1043,34 @@ async function updateAllocationRule(req, res) {
       return res.status(400).json({ error: 'Start floor must be less than or equal to end floor, and >= 0' });
     }
 
+    // Floor Reservation Overlap Check excluding current ruleId
+    const existingBlockRules = await AllocationRule.findAll({
+      where: { 
+        block_id: rule.block_id,
+        rule_id: { [Op.ne]: rule.rule_id }
+      }
+    });
+
+    const overlappingRule = existingBlockRules.find(r => 
+      rule.floor_start <= r.floor_end && rule.floor_end >= r.floor_start
+    );
+
+    if (overlappingRule) {
+      const overlapStart = Math.max(rule.floor_start, overlappingRule.floor_start);
+      const overlapEnd = Math.min(rule.floor_end, overlappingRule.floor_end);
+      const overlapText = overlapStart === overlapEnd ? `Floor ${overlapStart}` : `Floors ${overlapStart}–${overlapEnd}`;
+      const ruleYearText = overlappingRule.allowed_year ? `${overlappingRule.allowed_year}th Year` : 'All Years';
+      
+      return res.status(400).json({ 
+        error: `${overlapText} is already allocated to ${overlappingRule.programme} (${ruleYearText}). Please select different floors.` 
+      });
+    }
+
     await rule.save();
 
     const fullRule = await AllocationRule.findByPk(rule.rule_id, {
       include: [
-        { model: Hostel, attributes: ['hostel_id', 'name', 'allowed_gender'] },
+        { model: Hostel, attributes: ['hostel_id', 'name'] },
         { model: Block, attributes: ['block_id', 'name', 'is_reserved'] }
       ]
     });
@@ -1062,7 +1102,7 @@ async function getHostelAllocationRules(req, res) {
     const rules = await AllocationRule.findAll({
       where: { hostel_id: hostelId },
       include: [
-        { model: Hostel, attributes: ['hostel_id', 'name', 'allowed_gender'] },
+        { model: Hostel, attributes: ['hostel_id', 'name'] },
         { model: Block, attributes: ['block_id', 'name', 'is_reserved'] }
       ],
       order: [['programme', 'ASC'], ['block_id', 'ASC']]
@@ -1262,25 +1302,292 @@ async function releaseOccupants(req, res) {
   }
 }
 
+async function getFloorSummary(req, res) {
+  try {
+    const { blockId } = req.query;
+
+    if (!blockId) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'blockId query parameter is required' 
+      });
+    }
+
+    const floors = await Floor.findAll({
+      where: { block_id: parseInt(blockId, 10) },
+      order: [['floor_number', 'ASC']]
+    });
+
+    const floorData = await Promise.all(
+      floors.map(async (floor) => {
+        const totalRooms = await Room.count({
+          where: { floor_id: floor.floor_id }
+        });
+        const reservedRooms = await Room.count({
+          where: { floor_id: floor.floor_id, is_reserved: true }
+        });
+        const lockedRooms = await Room.count({
+          where: { floor_id: floor.floor_id, status: 'Locked' }
+        });
+
+        return {
+          floor_id: floor.floor_id,
+          floor_number: floor.floor_number,
+          is_reserved: floor.is_reserved,
+          totalRooms,
+          reservedRooms,
+          lockedRooms,
+          availableRooms: totalRooms - reservedRooms - lockedRooms
+        };
+      })
+    );
+
+    return res.json({
+      success: true,
+      floors: floorData,
+      total: floorData.length
+    });
+  } catch (error) {
+    console.error('Error in getFloorSummary:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to fetch floor summary',
+      details: error.message
+    });
+  }
+}
+
+async function getBlockSummary(req, res) {
+  try {
+    const { hostelId } = req.query;
+
+    if (!hostelId) {
+      return res.status(400).json({
+        success: false,
+        error: 'hostelId query parameter is required'
+      });
+    }
+
+    const blocks = await Block.findAll({
+      where: { hostel_id: parseInt(hostelId, 10) },
+      include: [{ model: Hostel, attributes: ['name'] }],
+      order: [['name', 'ASC']]
+    });
+
+    const blockData = await Promise.all(
+      blocks.map(async (block) => {
+        const floors = await Floor.findAll({
+          where: { block_id: block.block_id }
+        });
+        const floorIds = floors.map(f => f.floor_id);
+
+        const totalRooms = await Room.count({
+          where: { floor_id: floorIds }
+        });
+        const lockedRooms = await Room.count({
+          where: { floor_id: floorIds, status: 'Locked' }
+        });
+        const reservedRooms = await Room.count({
+          where: { floor_id: floorIds, is_reserved: true }
+        });
+        const vacantRooms = totalRooms - lockedRooms - reservedRooms;
+
+        return {
+          block_id: block.block_id,
+          name: block.name,
+          is_reserved: block.is_reserved,
+          hostel_name: block.Hostel ? block.Hostel.name : 'Unknown',
+          stats: {
+            totalRooms,
+            lockedRooms,
+            reservedRooms,
+            vacantRooms: Math.max(0, vacantRooms)
+          }
+        };
+      })
+    );
+
+    return res.json({
+      success: true,
+      blocks: blockData,
+      total: blockData.length
+    });
+  } catch (error) {
+    console.error('Error in getBlockSummary:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to fetch block summary',
+      details: error.message
+    });
+  }
+}
+
+async function toggleBlockReservation(req, res) {
+  try {
+    const { blockId, id } = req.params;
+    const targetId = blockId || id;
+    const { is_reserved } = req.body;
+
+    const block = await Block.findByPk(targetId);
+    if (!block) {
+      return res.status(404).json({ error: 'Block not found' });
+    }
+
+    const newStatus = is_reserved !== undefined ? is_reserved : !block.is_reserved;
+    await block.update({ is_reserved: newStatus });
+    return res.json({
+      success: true,
+      message: `Block ${block.name} ${newStatus ? 'reserved' : 'unreserved'}`,
+      block
+    });
+  } catch (error) {
+    console.error('Error toggling block reservation:', error);
+    return res.status(500).json({ error: 'Failed to update block reservation' });
+  }
+}
+
+async function getFloorById(req, res) {
+  try {
+    const { id } = req.params;
+    const floor = await Floor.findByPk(id, {
+      include: [{ model: Block, include: [Hostel] }]
+    });
+    if (!floor) {
+      return res.status(404).json({ success: false, error: 'Floor not found' });
+    }
+    return res.json({ success: true, floor });
+  } catch (error) {
+    console.error('Error fetching floor:', error);
+    return res.status(500).json({ success: false, error: 'Failed to fetch floor' });
+  }
+}
+
+async function getRoomById(req, res) {
+  try {
+    const { id } = req.params;
+    const room = await Room.findByPk(id, {
+      include: [
+        { model: Floor, include: [{ model: Block, include: [Hostel] }] },
+        { model: Student, attributes: ['roll_number', 'full_name', 'email', 'gender', 'programme', 'year', 'booking_status'] }
+      ]
+    });
+    if (!room) {
+      return res.status(404).json({ success: false, error: 'Room not found' });
+    }
+    return res.json({ success: true, room });
+  } catch (error) {
+    console.error('Error fetching room:', error);
+    return res.status(500).json({ success: false, error: 'Failed to fetch room' });
+  }
+}
+
+async function getRoomOccupants(req, res) {
+  try {
+    const { roomId } = req.params;
+    const occupants = await Student.findAll({
+      where: { booked_room_id: parseInt(roomId, 10) },
+      attributes: ['roll_number', 'full_name', 'email', 'gender', 'programme', 'year', 'booking_status']
+    });
+    return res.json({ success: true, occupants });
+  } catch (error) {
+    console.error('Error fetching room occupants:', error);
+    return res.status(500).json({ success: false, error: 'Failed to fetch occupants' });
+  }
+}
+
+async function bulkReserveRooms(req, res) {
+  try {
+    const { roomIds, is_reserved } = req.body;
+    if (!roomIds || !Array.isArray(roomIds) || roomIds.length === 0) {
+      return res.status(400).json({ success: false, error: 'roomIds array is required' });
+    }
+    await Room.update(
+      { is_reserved: !!is_reserved },
+      { where: { room_id: roomIds } }
+    );
+    return res.json({ success: true, updated: roomIds.length });
+  } catch (error) {
+    console.error('Error in bulkReserveRooms:', error);
+    return res.status(500).json({ success: false, error: 'Failed to bulk reserve rooms' });
+  }
+}
+
+async function bulkDeleteRooms(req, res) {
+  try {
+    const { roomIds } = req.body;
+    if (!roomIds || !Array.isArray(roomIds) || roomIds.length === 0) {
+      return res.status(400).json({ success: false, error: 'roomIds array is required' });
+    }
+    // Reset students booked in these rooms before deleting to prevent orphaned references
+    await Student.update(
+      { booked_room_id: null, booking_status: 'Pending' },
+      { where: { booked_room_id: roomIds } }
+    );
+    await Booking.destroy({ where: { room_id: roomIds } });
+    await Room.destroy({ where: { room_id: roomIds } });
+    return res.json({ success: true, deleted: roomIds.length });
+  } catch (error) {
+    console.error('Error in bulkDeleteRooms:', error);
+    return res.status(500).json({ success: false, error: 'Failed to bulk delete rooms' });
+  }
+}
+
+async function getHostelById(req, res) {
+  try {
+    const hostelId = req.params.hostelId || req.params.id;
+    const hostel = await Hostel.findByPk(hostelId);
+    if (!hostel) {
+      return res.status(404).json({ success: false, error: 'Hostel not found' });
+    }
+    return res.json({ success: true, hostel });
+  } catch (error) {
+    console.error('Error fetching hostel:', error);
+    return res.status(500).json({ success: false, error: 'Failed to fetch hostel' });
+  }
+}
+
+async function getBlockById(req, res) {
+  try {
+    const blockId = req.params.blockId || req.params.id;
+    const block = await Block.findByPk(blockId, { include: [Hostel] });
+    if (!block) {
+      return res.status(404).json({ success: false, error: 'Block not found' });
+    }
+    return res.json({ success: true, block });
+  } catch (error) {
+    console.error('Error fetching block:', error);
+    return res.status(500).json({ success: false, error: 'Failed to fetch block' });
+  }
+}
+
 module.exports = {
   uploadStudents,
   getHostels,
+  getHostelById,
   createHostel,
   updateHostel,
   deleteHostel,
   clearHostelData,
   getBlocks,
+  getBlockById,
+  getBlockSummary,
   createBlock,
   deleteBlock,
   toggleBlockReservation,
   getFloors,
+  getFloorById,
   createFloor,
   bulkCreateFloors,
   deleteFloor,
   toggleFloorReservation,
+  getFloorSummary,
   getRooms,
+  getRoomById,
+  getRoomOccupants,
   createRoom,
   bulkCreateRooms,
+  bulkReserveRooms,
+  bulkDeleteRooms,
   deleteRoom,
   toggleRoomReservation,
   releaseOccupants,
@@ -1292,5 +1599,6 @@ module.exports = {
   deleteAllocationRule,
   getHostelAllocationRules
 };
+
 
 

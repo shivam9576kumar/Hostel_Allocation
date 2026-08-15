@@ -1,25 +1,36 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { useParams, useNavigate } from 'react-router-dom';
 import HostelManager from './HostelManager';
 import AllocationRulesManager from './AllocationRulesManager';
 import BlockManager from './BlockManager';
 import FloorManager from './FloorManager';
 import RoomManager from './RoomManager';
+import RoomsGrid from './RoomsGrid';
 import StudentUpload from './StudentUpload';
 import AdminSwapToggle from './AdminSwapToggle';
 import AdminSwapRequests from './AdminSwapRequests';
-import { Building2, Layers, Grid, DoorClosed, Upload, LogOut, ShieldCheck, ArrowLeftRight, Settings } from 'lucide-react';
+import { Building2, Layers, Grid, DoorClosed, Upload, LogOut, ShieldCheck, ArrowLeftRight } from 'lucide-react';
 
-const AdminDashboard = () => {
+const AdminDashboard = ({ initialTab = 'hostels' }) => {
   const { user, logout } = useAuth();
-  const [activeTab, setActiveTab] = useState('hostels');
+  const navigate = useNavigate();
+  const { floorId } = useParams();
+  const [activeTab, setActiveTab] = useState(initialTab);
+  const [selectedBlockForFloors, setSelectedBlockForFloors] = useState(null);
+
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
 
   const tabs = [
     { id: 'hostels', label: 'Hostels', icon: Building2 },
-    { id: 'rules', label: 'Allocation Rules', icon: ShieldCheck },
     { id: 'blocks', label: 'Blocks', icon: Layers },
     { id: 'floors', label: 'Floors', icon: Grid },
     { id: 'rooms', label: 'Rooms Grid', icon: DoorClosed },
+    { id: 'rules', label: 'Allocation Rules', icon: ShieldCheck },
     { id: 'students', label: 'Student Data Upload', icon: Upload },
     { id: 'swaps', label: 'Room Swap Control', icon: ArrowLeftRight }
   ];
@@ -66,7 +77,10 @@ const AdminDashboard = () => {
             return (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
+                onClick={() => {
+                  setActiveTab(tab.id);
+                  if (tab.id === 'hostels') navigate('/admin');
+                }}
                 className={`flex-1 min-w-[140px] py-3 px-4 rounded-xl font-semibold text-xs flex items-center justify-center gap-2 transition ${
                   isActive
                     ? 'bg-slate-900 text-white shadow-md'
@@ -83,9 +97,22 @@ const AdminDashboard = () => {
         {/* Tab View Content */}
         {activeTab === 'hostels' && <HostelManager />}
         {activeTab === 'rules' && <AllocationRulesManager />}
-        {activeTab === 'blocks' && <BlockManager />}
-        {activeTab === 'floors' && <FloorManager />}
-        {activeTab === 'rooms' && <RoomManager />}
+        {activeTab === 'blocks' && (
+          <BlockManager
+            onNavigateToFloors={(block) => {
+              setSelectedBlockForFloors(block);
+              setActiveTab('floors');
+            }}
+          />
+        )}
+        {activeTab === 'floors' && (
+          <FloorManager
+            initialBlock={selectedBlockForFloors}
+            onBackToBlocks={() => setActiveTab('blocks')}
+            onNavigateToRooms={() => setActiveTab('rooms')}
+          />
+        )}
+        {activeTab === 'rooms' && (floorId ? <RoomsGrid /> : <RoomManager />)}
         {activeTab === 'students' && <StudentUpload />}
         {activeTab === 'swaps' && (
           <div className="space-y-8">

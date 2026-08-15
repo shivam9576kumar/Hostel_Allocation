@@ -7,22 +7,31 @@ const adminAuth = require('../middleware/adminAuth');
 const {
   uploadStudents,
   getHostels,
+  getHostelById,
   createHostel,
   updateHostel,
   deleteHostel,
   clearHostelData,
   getBlocks,
+  getBlockById,
+  getBlockSummary,
   createBlock,
   deleteBlock,
   toggleBlockReservation,
   getFloors,
+  getFloorById,
+  getFloorSummary,
   createFloor,
   bulkCreateFloors,
   deleteFloor,
   toggleFloorReservation,
   getRooms,
+  getRoomById,
+  getRoomOccupants,
   createRoom,
   bulkCreateRooms,
+  bulkReserveRooms,
+  bulkDeleteRooms,
   deleteRoom,
   toggleRoomReservation,
   releaseOccupants,
@@ -72,8 +81,14 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 
+const settingsController = require('../controllers/settingsController');
+
 // All admin routes are protected by adminAuth middleware
 router.use(adminAuth);
+
+// Global Settings Routes
+router.get('/settings', settingsController.getGlobalSettings);
+router.put('/settings', settingsController.updateGlobalSettings);
 
 // Student Roster Management
 router.post('/upload-students', upload.single('file'), uploadStudents);
@@ -82,6 +97,8 @@ router.get('/students', getStudents);
 
 // Hostel Management
 router.get('/hostels', getHostels);
+router.get('/hostels/:id', getHostelById);
+router.get('/hostels/:hostelId', getHostelById);
 router.post('/hostels', createHostel);
 router.put('/hostels/:id', updateHostel);
 router.put('/hostels/:id/settings', updateHostel);
@@ -96,13 +113,18 @@ router.put('/allocation-rules/:ruleId', updateAllocationRule);
 router.delete('/allocation-rules/:ruleId', deleteAllocationRule);
 
 // Block Management
+router.get('/blocks/summary', getBlockSummary);
 router.get('/blocks', getBlocks);
+router.get('/blocks/:id', getBlockById);
+router.get('/blocks/:blockId', getBlockById);
 router.post('/blocks', createBlock);
 router.delete('/blocks/:id', deleteBlock);
 router.put('/blocks/:id/reserve', toggleBlockReservation);
 
 // Floor Management
+router.get('/floors/summary', getFloorSummary);
 router.get('/floors', getFloors);
+router.get('/floors/:id', getFloorById);
 router.post('/floors', createFloor);
 router.post('/floors/bulk', bulkCreateFloors);
 router.delete('/floors/:id', deleteFloor);
@@ -110,8 +132,12 @@ router.put('/floors/:id/reserve', toggleFloorReservation);
 
 // Room Management
 router.get('/rooms', getRooms);
+router.put('/rooms/bulk-reserve', bulkReserveRooms);
+router.delete('/rooms/bulk-delete', bulkDeleteRooms);
+router.get('/rooms/:id', getRoomById);
+router.get('/rooms/:roomId/occupants', getRoomOccupants);
 router.post('/rooms', createRoom);
-router.post('/rooms/bulk', verifyAdmin, validateBulkRoom, bulkCreateRooms);
+router.post('/rooms/bulk', bulkCreateRooms);
 router.delete('/rooms/:id', deleteRoom);
 router.put('/rooms/:id/reserve', toggleRoomReservation);
 router.post('/rooms/:roomId/release', releaseOccupants);

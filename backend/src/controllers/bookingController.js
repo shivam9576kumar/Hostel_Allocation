@@ -211,21 +211,23 @@ async function bookRoom(req, res) {
       return res.status(400).json({ error: `Room is no longer vacant (Current status: ${room.status}).` });
     }
 
-    // 3. Verify Hostel eligibility and time window
-    const hostel = room.Floor.Block.Hostel;
+    // 3. Verify Global Booking Window (System-Wide)
+    const { GlobalSetting } = require('../models');
     const now = new Date();
+    const settings = await GlobalSetting.findOne({ where: { id: 1 }, transaction });
 
-    if (hostel.allowed_gender !== student.gender) {
-      if (!transaction.finished) await transaction.rollback();
-      return res.status(403).json({ error: 'Student gender does not match hostel criteria.' });
-    }
+    if (settings && settings.booking_start_time && settings.booking_end_time) {
+      const startTime = new Date(settings.booking_start_time);
+      const endTime = new Date(settings.booking_end_time);
 
-    if (now < new Date(hostel.start_time) || now > new Date(hostel.end_time)) {
-      if (!transaction.finished) await transaction.rollback();
-      return res.status(403).json({ error: 'Hostel booking time window has expired or is not yet active.' });
+      if (now < startTime || now > endTime) {
+        if (!transaction.finished) await transaction.rollback();
+        return res.status(403).json({ error: 'System-wide booking window is currently closed or not active.' });
+      }
     }
 
     // Check Allocation Rules for hostel, block, floor, programme and year
+    const hostel = room.Floor.Block.Hostel;
     const rules = await AllocationRule.findAll({
       where: {
         hostel_id: hostel.hostel_id,
@@ -381,10 +383,6 @@ async function pairRoom(req, res) {
     }
 
     const hostel = room.Floor.Block.Hostel;
-    if (hostel.allowed_gender !== studentB.gender) {
-      if (!transaction.finished) await transaction.rollback();
-      return res.status(403).json({ error: 'Student gender does not match hostel criteria.' });
-    }
 
     const rules = await AllocationRule.findAll({
       where: {
@@ -416,9 +414,14 @@ async function pairRoom(req, res) {
       });
     }
 
-    if (now < new Date(hostel.start_time) || now > new Date(hostel.end_time)) {
-      if (!transaction.finished) await transaction.rollback();
-      return res.status(403).json({ error: 'Hostel booking window has closed.' });
+    // Booking window check uses GlobalSetting (hostel model no longer has time fields)
+    const { GlobalSetting } = require('../models');
+    const gSettings = await GlobalSetting.findOne({ where: { id: 1 }, transaction });
+    if (gSettings && gSettings.booking_start_time && gSettings.booking_end_time) {
+      if (now < new Date(gSettings.booking_start_time) || now > new Date(gSettings.booking_end_time)) {
+        if (!transaction.finished) await transaction.rollback();
+        return res.status(403).json({ error: 'System-wide booking window is currently closed.' });
+      }
     }
 
     const outcome = await executeRoomPairing({ room, studentB, code, transaction, hostel });
@@ -520,10 +523,6 @@ async function pairByCode(req, res) {
     }
 
     const hostel = room.Floor.Block.Hostel;
-    if (hostel.allowed_gender !== studentB.gender) {
-      if (!transaction.finished) await transaction.rollback();
-      return res.status(403).json({ error: 'Student gender does not match hostel criteria.' });
-    }
 
     const rules = await AllocationRule.findAll({
       where: {
@@ -555,9 +554,14 @@ async function pairByCode(req, res) {
       });
     }
 
-    if (now < new Date(hostel.start_time) || now > new Date(hostel.end_time)) {
-      if (!transaction.finished) await transaction.rollback();
-      return res.status(403).json({ error: 'Hostel booking window has closed.' });
+    // Booking window check uses GlobalSetting (hostel model no longer has time fields)
+    const { GlobalSetting: GS } = require('../models');
+    const gSettings2 = await GS.findOne({ where: { id: 1 }, transaction });
+    if (gSettings2 && gSettings2.booking_start_time && gSettings2.booking_end_time) {
+      if (now < new Date(gSettings2.booking_start_time) || now > new Date(gSettings2.booking_end_time)) {
+        if (!transaction.finished) await transaction.rollback();
+        return res.status(403).json({ error: 'System-wide booking window is currently closed.' });
+      }
     }
 
     const outcome = await executeRoomPairing({ room, studentB, code: cleanCode, transaction, hostel });
