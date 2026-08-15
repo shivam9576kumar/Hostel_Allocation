@@ -25,28 +25,267 @@ async function uploadStudents(req, res) {
 // 2. List Hostels
 async function getHostels(req, res) {
   try {
-    const where = {};
-
     const hostels = await Hostel.findAll({
-      where,
       include: [
         {
           model: Block,
-          include: [
-            {
-              model: Floor,
-              include: [Room]
-            }
-          ]
+          attributes: ['block_id']
         }
       ],
       order: [['hostel_id', 'ASC']]
     });
 
-    return res.json({ hostels });
+    const result = hostels.map(h => ({
+      hostel_id: h.hostel_id,
+      name: h.name,
+      blockCount: h.Blocks ? h.Blocks.length : 0
+    }));
+
+    return res.json({ hostels: result });
   } catch (err) {
     console.error('Error in getHostels:', err);
     return res.status(500).json({ error: 'Failed to fetch hostels.' });
+  }
+}
+
+// 2b. Get Hostel Summary Stats
+async function getHostelSummary(req, res) {
+  try {
+    const { hostelId } = req.params;
+
+    const hostel = await Hostel.findByPk(hostelId);
+    if (!hostel) return res.status(404).json({ error: 'Hostel not found' });
+
+    // Get all blocks, floors, rooms, and students
+    const blocks = await Block.findAll({
+      where: { hostel_id: hostelId },
+      include: [{
+        model: Floor,
+        include: [{
+          model: Room,
+          attributes: ['room_id', 'current_occupancy', 'capacity']
+        }]
+      }]
+    });
+
+    let totalFloors = 0;
+    let totalRooms = 0;
+    let totalStudents = 0;
+    const blockSummary = blocks.map(block => {
+      const floors = block.Floors || [];
+      totalFloors += floors.length;
+      const rooms = floors.flatMap(f => f.Rooms || []);
+      totalRooms += rooms.length;
+      const studentsInBlock = rooms.reduce((acc, r) => acc + (r.current_occupancy || 0), 0);
+      totalStudents += studentsInBlock;
+      return {
+        block_id: block.block_id,
+        name: block.name,
+        floorCount: floors.length,
+        roomCount: rooms.length,
+        studentCount: studentsInBlock
+      };
+    });
+
+    return res.json({
+      success: true,
+      summary: {
+        hostel: {
+          hostel_id: hostel.hostel_id,
+          name: hostel.name
+        },
+        totalBlocks: blocks.length,
+        totalFloors,
+        totalRooms,
+        totalStudents,
+        blockSummary
+      }
+    });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+// Get Block Summary Stats
+async function getBlockSummary(req, res) {
+  try {
+    const targetBlockId = req.params.blockId || req.query.blockId;
+    const hostelId = req.query.hostelId;
+
+    if (targetBlockId) {
+      const block = await Block.findByPk(targetBlockId, { include: [{ model: Hostel }] });
+      if (!block) return res.status(404).json({ error: 'Block not found' });
+
+      const floors = await Floor.findAll({
+        where: { block_id: targetBlockId },
+        include: [{ model: Room }]
+      });
+
+      let totalRooms = 0;
+      let totalStudents = 0;
+      const floorSummary = floors.map(floor => {
+        const rooms = floor.Rooms || [];
+        totalRooms += rooms.length;
+        const students = rooms.reduce((acc, r) => acc + (r.current_occupancy || 0), 0);
+        totalStudents += students;
+        return {
+          floor_id: floor.floor_id,
+          floor_number: floor.floor_number,
+          roomCount: rooms.length,
+          studentCount: students
+        };
+      });
+
+      return res.json({
+        success: true,
+        summary: {
+          block: { block_id: block.block_id, name: block.name, hostel_name: block.Hostel?.name || 'Unknown' },
+          totalFloors: floors.length,
+          totalRooms,
+          totalStudents,
+          floorSummary
+        }
+      });
+    }
+
+    if (hostelId) {
+      const blocks = await Block.findAll({
+        where: { hostel_id: hostelId },
+        include: [{
+          model: Floor,
+          include: [Room]
+        }],
+        order: [['name', 'ASC']]
+      });
+
+      const result = blocks.map(b => {
+        const floors = b.Floors || [];
+        const rooms = floors.flatMap(f => f.Rooms || []);
+        const totalRooms = rooms.length;
+        const lockedRooms = rooms.filter(r => r.status === 'Locked').length;
+        const reservedRooms = rooms.filter(r => r.is_reserved).length;
+        const vacantRooms = rooms.filter(r => r.status === 'Vacant' && !r.is_reserved).length;
+
+        return {
+          block_id: b.block_id,
+          name: b.name,
+          hostel_id: b.hostel_id,
+          is_reserved: b.is_reserved,
+          stats: {
+            totalRooms,
+            lockedRooms,
+            reservedRooms,
+            vacantRooms
+          }
+        };
+      });
+
+      return res.json({ blocks: result });
+    }
+
+    return res.status(400).json({ error: 'blockId parameter or hostelId query parameter is required' });
+  } catch (err) {
+    console.error('Error in getBlockSummary:', err);
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+// Get Floor Summary Stats
+async function getFloorSummary(req, res) {
+  try {
+    const targetFloorId = req.params.floorId || req.query.floorId;
+    const blockId = req.query.blockId;
+
+    if (targetFloorId) {
+      const floor = await Floor.findByPk(targetFloorId, { include: [{ model: Block, include: [Hostel] }] });
+      if (!floor) return res.status(404).json({ error: 'Floor not found' });
+
+      const rooms = await Room.findAll({
+        where: { floor_id: targetFloorId },
+        attributes: ['room_id', 'room_number', 'status', 'current_occupancy', 'capacity']
+      });
+
+      let totalStudents = 0;
+      let vacant = 0;
+      let pending = 0;
+      let locked = 0;
+
+      rooms.forEach(room => {
+        totalStudents += (room.current_occupancy || 0);
+        if (room.status === 'Vacant') vacant++;
+        else if (room.status === 'Pending_Pairing') pending++;
+        else if (room.status === 'Locked') locked++;
+      });
+
+      return res.json({
+        success: true,
+        summary: {
+          floor: {
+            floor_id: floor.floor_id,
+            floor_number: floor.floor_number,
+            block_name: floor.Block?.name || 'Unknown',
+            hostel_name: floor.Block?.Hostel?.name || 'Unknown'
+          },
+          totalRooms: rooms.length,
+          totalStudents,
+          vacant,
+          pending,
+          locked,
+          rooms
+        }
+      });
+    }
+
+    if (blockId) {
+      const floors = await Floor.findAll({
+        where: { block_id: blockId },
+        include: [Room],
+        order: [['floor_number', 'ASC']]
+      });
+
+      const result = floors.map(f => {
+        const rooms = f.Rooms || [];
+        return {
+          floor_id: f.floor_id,
+          floor_number: f.floor_number,
+          block_id: f.block_id,
+          is_reserved: f.is_reserved,
+          totalRooms: rooms.length,
+          reservedRooms: rooms.filter(r => r.is_reserved).length,
+          lockedRooms: rooms.filter(r => r.status === 'Locked').length,
+          vacantRooms: rooms.filter(r => r.status === 'Vacant' && !r.is_reserved).length
+        };
+      });
+
+      return res.json({ floors: result });
+    }
+
+    return res.status(400).json({ error: 'floorId parameter or blockId query parameter is required' });
+  } catch (err) {
+    console.error('Error in getFloorSummary:', err);
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+// Get Room Occupants
+async function getRoomOccupants(req, res) {
+  try {
+    const { roomId } = req.params;
+    const room = await Room.findByPk(roomId);
+    if (!room) return res.status(404).json({ error: 'Room not found' });
+
+    const occupants = await Student.findAll({
+      where: { booked_room_id: roomId },
+      attributes: ['roll_number', 'full_name', 'programme', 'year', 'gender']
+    });
+
+    return res.json({
+      success: true,
+      occupants
+    });
+  } catch (err) {
+    console.error('Error in getRoomOccupants:', err);
+    return res.status(500).json({ error: err.message });
   }
 }
 
@@ -94,7 +333,7 @@ async function updateHostel(req, res) {
 
 // 5. Delete Hostel (with student reset)
 async function deleteHostel(req, res) {
-  const { id } = req.params;
+  const id = req.params.id || req.params.hostelId;
   const transaction = await sequelize.transaction();
   try {
     const hostel = await Hostel.findByPk(id, { transaction });
@@ -169,7 +408,7 @@ async function deleteHostel(req, res) {
 
 // 6. Clear Hostel Data (with swap_requests cleanup)
 async function clearHostelData(req, res) {
-  const { id } = req.params;
+  const id = req.params.id || req.params.hostelId;
   const transaction = await sequelize.transaction();
   
   try {
@@ -1304,7 +1543,48 @@ async function releaseOccupants(req, res) {
 
 async function getFloorSummary(req, res) {
   try {
+    const targetFloorId = req.params.floorId || req.query.floorId;
     const { blockId } = req.query;
+
+    if (targetFloorId) {
+      const floor = await Floor.findByPk(targetFloorId, { include: [{ model: Block, include: [Hostel] }] });
+      if (!floor) return res.status(404).json({ error: 'Floor not found' });
+
+      const rooms = await Room.findAll({
+        where: { floor_id: targetFloorId },
+        attributes: ['room_id', 'room_number', 'status', 'current_occupancy', 'capacity']
+      });
+
+      let totalStudents = 0;
+      let vacant = 0;
+      let pending = 0;
+      let locked = 0;
+
+      rooms.forEach(room => {
+        totalStudents += (room.current_occupancy || 0);
+        if (room.status === 'Vacant') vacant++;
+        else if (room.status === 'Pending_Pairing') pending++;
+        else if (room.status === 'Locked') locked++;
+      });
+
+      return res.json({
+        success: true,
+        summary: {
+          floor: {
+            floor_id: floor.floor_id,
+            floor_number: floor.floor_number,
+            block_name: floor.Block?.name || 'Unknown',
+            hostel_name: floor.Block?.Hostel?.name || 'Unknown'
+          },
+          totalRooms: rooms.length,
+          totalStudents,
+          vacant,
+          pending,
+          locked,
+          rooms
+        }
+      });
+    }
 
     if (!blockId) {
       return res.status(400).json({ 
@@ -1359,7 +1639,44 @@ async function getFloorSummary(req, res) {
 
 async function getBlockSummary(req, res) {
   try {
+    const targetBlockId = req.params.blockId || req.query.blockId;
     const { hostelId } = req.query;
+
+    if (targetBlockId) {
+      const block = await Block.findByPk(targetBlockId, { include: [{ model: Hostel }] });
+      if (!block) return res.status(404).json({ error: 'Block not found' });
+
+      const floors = await Floor.findAll({
+        where: { block_id: targetBlockId },
+        include: [{ model: Room }]
+      });
+
+      let totalRooms = 0;
+      let totalStudents = 0;
+      const floorSummary = floors.map(floor => {
+        const rooms = floor.Rooms || [];
+        totalRooms += rooms.length;
+        const students = rooms.reduce((acc, r) => acc + (r.current_occupancy || 0), 0);
+        totalStudents += students;
+        return {
+          floor_id: floor.floor_id,
+          floor_number: floor.floor_number,
+          roomCount: rooms.length,
+          studentCount: students
+        };
+      });
+
+      return res.json({
+        success: true,
+        summary: {
+          block: { block_id: block.block_id, name: block.name, hostel_name: block.Hostel?.name || 'Unknown' },
+          totalFloors: floors.length,
+          totalRooms,
+          totalStudents,
+          floorSummary
+        }
+      });
+    }
 
     if (!hostelId) {
       return res.status(400).json({
@@ -1564,6 +1881,7 @@ module.exports = {
   uploadStudents,
   getHostels,
   getHostelById,
+  getHostelSummary,
   createHostel,
   updateHostel,
   deleteHostel,

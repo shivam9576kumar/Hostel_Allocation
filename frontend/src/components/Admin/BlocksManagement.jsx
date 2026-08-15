@@ -1,12 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { Building2, RefreshCw } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../../api/axios';
 import BlockGrid from './BlockGrid';
+import BlockPopup from './BlockPopup';
 
 const BlocksManagement = ({ onNavigateToFloors }) => {
   const { hostelId: paramHostelId } = useParams();
+  const [searchParams] = useSearchParams();
+  const queryHostelId = searchParams.get('hostelId');
+  const activeHostelId = paramHostelId || queryHostelId;
+
   const navigate = useNavigate();
 
   const [hostels, setHostels] = useState([]);
@@ -14,10 +19,11 @@ const BlocksManagement = ({ onNavigateToFloors }) => {
   const [selectedHostel, setSelectedHostel] = useState(null);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('ALL');
+  const [popupBlockId, setPopupBlockId] = useState(null);
 
   useEffect(() => {
     fetchHostels();
-  }, [paramHostelId]);
+  }, [activeHostelId]);
 
   const fetchHostels = async () => {
     try {
@@ -26,8 +32,8 @@ const BlocksManagement = ({ onNavigateToFloors }) => {
       setHostels(hostelList);
 
       let targetHostel = hostelList[0];
-      if (paramHostelId) {
-        const found = hostelList.find(h => h.hostel_id === parseInt(paramHostelId, 10));
+      if (activeHostelId) {
+        const found = hostelList.find(h => String(h.hostel_id) === String(activeHostelId));
         if (found) targetHostel = found;
       }
 
@@ -57,7 +63,7 @@ const BlocksManagement = ({ onNavigateToFloors }) => {
     const hostel = hostels.find(h => h.hostel_id === hId);
     if (hostel) {
       setSelectedHostel(hostel);
-      navigate(`/admin/hostels/${hId}/blocks`);
+      navigate(`/admin/blocks?hostelId=${hId}`);
       fetchBlocks(hId);
     }
   };
@@ -82,7 +88,6 @@ const BlocksManagement = ({ onNavigateToFloors }) => {
     }
   };
 
-  // Calculate next block letter sequentially (A, B, C...)
   const getNextBlockLetter = () => {
     if (blocks.length === 0) return 'A';
     const sortedBlocks = [...blocks].sort((a, b) => a.name.localeCompare(b.name));
@@ -94,7 +99,6 @@ const BlocksManagement = ({ onNavigateToFloors }) => {
     return String(blocks.length + 1);
   };
 
-  // Filter blocks by status
   const filteredBlocks = blocks.filter(block => {
     if (statusFilter === 'ALL') return true;
     if (statusFilter === 'ACTIVE') return !block.is_reserved;
@@ -171,16 +175,18 @@ const BlocksManagement = ({ onNavigateToFloors }) => {
           hostelId={selectedHostel.hostel_id}
           onAddBlock={handleAddBlock}
           onBlockUpdated={handleBlockUpdated}
-          onViewFloors={(block) => {
-            if (onNavigateToFloors) {
-              onNavigateToFloors(block);
-            } else {
-              navigate(`/admin/hostels/${selectedHostel.hostel_id}/blocks/${block.block_id}/floors`);
-            }
-          }}
+          onViewFloors={(block) => setPopupBlockId(block.block_id)}
         />
       ) : (
         <div className="text-center py-12 text-slate-400 font-medium">Select a hostel to view blocks.</div>
+      )}
+
+      {/* Block Summary Popup */}
+      {popupBlockId && (
+        <BlockPopup
+          blockId={popupBlockId}
+          onClose={() => setPopupBlockId(null)}
+        />
       )}
     </div>
   );

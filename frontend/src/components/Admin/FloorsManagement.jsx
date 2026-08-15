@@ -1,13 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { Layers, RefreshCw, ArrowLeft } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../../api/axios';
 import BlockSelector from './BlockSelector';
 import FloorGrid from './FloorGrid';
+import FloorPopup from './FloorPopup';
 
 const FloorsManagement = ({ initialBlock, onBackToBlocks, onNavigateToRooms }) => {
   const { hostelId: paramHostelId, blockId: paramBlockId } = useParams();
+  const [searchParams] = useSearchParams();
+  const queryHostelId = searchParams.get('hostelId');
+  const queryBlockId = searchParams.get('blockId');
+
   const navigate = useNavigate();
 
   const [hostels, setHostels] = useState([]);
@@ -16,13 +21,14 @@ const FloorsManagement = ({ initialBlock, onBackToBlocks, onNavigateToRooms }) =
   const [selectedBlock, setSelectedBlock] = useState(null);
   const [floors, setFloors] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [popupFloorId, setPopupFloorId] = useState(null);
 
-  const activeHostelId = paramHostelId ? parseInt(paramHostelId, 10) : initialBlock?.hostel_id;
-  const activeBlockId = paramBlockId ? parseInt(paramBlockId, 10) : initialBlock?.block_id;
+  const activeHostelId = paramHostelId || queryHostelId || initialBlock?.hostel_id;
+  const activeBlockId = paramBlockId || queryBlockId || initialBlock?.block_id;
 
   useEffect(() => {
     fetchHostels();
-  }, [paramHostelId, paramBlockId]);
+  }, [activeHostelId, activeBlockId]);
 
   const fetchHostels = async () => {
     try {
@@ -32,7 +38,7 @@ const FloorsManagement = ({ initialBlock, onBackToBlocks, onNavigateToRooms }) =
 
       let targetHostel = hostelList[0];
       if (activeHostelId) {
-        const found = hostelList.find(h => h.hostel_id === activeHostelId);
+        const found = hostelList.find(h => String(h.hostel_id) === String(activeHostelId));
         if (found) targetHostel = found;
       }
 
@@ -53,7 +59,7 @@ const FloorsManagement = ({ initialBlock, onBackToBlocks, onNavigateToRooms }) =
 
       let targetBlock = blockList[0];
       if (activeBlockId) {
-        const found = blockList.find(b => b.block_id === activeBlockId);
+        const found = blockList.find(b => String(b.block_id) === String(activeBlockId));
         if (found) targetBlock = found;
       }
 
@@ -84,10 +90,7 @@ const FloorsManagement = ({ initialBlock, onBackToBlocks, onNavigateToRooms }) =
   const handleBlockChange = (block) => {
     setSelectedBlock(block);
     if (block) {
-      const hId = selectedHostel?.hostel_id || activeHostelId;
-      if (hId) {
-        navigate(`/admin/hostels/${hId}/blocks/${block.block_id}/floors`);
-      }
+      navigate(`/admin/floors?blockId=${block.block_id}`);
       fetchFloors(block.block_id);
     } else {
       setFloors([]);
@@ -107,17 +110,7 @@ const FloorsManagement = ({ initialBlock, onBackToBlocks, onNavigateToRooms }) =
   };
 
   const handleFloorClick = (floor) => {
-    if (onNavigateToRooms) {
-      onNavigateToRooms(floor.floor_id);
-    } else {
-      const hId = selectedHostel?.hostel_id || activeHostelId;
-      const bId = selectedBlock?.block_id || activeBlockId;
-      if (hId && bId) {
-        navigate(`/admin/hostels/${hId}/blocks/${bId}/floors/${floor.floor_id}/rooms`);
-      } else {
-        toast.info(`Floor ${floor.floor_number} selected.`);
-      }
-    }
+    setPopupFloorId(floor.floor_id);
   };
 
   const handleAddSingleFloor = async (floorNumber) => {
@@ -139,7 +132,6 @@ const FloorsManagement = ({ initialBlock, onBackToBlocks, onNavigateToRooms }) =
     navigate(-1);
   };
 
-  // Calculate next floor number sequentially
   const nextFloorNumber = floors.length > 0
     ? Math.max(...floors.map(f => f.floor_number)) + 1
     : 0;
@@ -220,6 +212,14 @@ const FloorsManagement = ({ initialBlock, onBackToBlocks, onNavigateToRooms }) =
         />
       ) : (
         <div className="text-center py-12 text-slate-400 font-medium">Select a hostel and block to view floors.</div>
+      )}
+
+      {/* Floor Summary Popup */}
+      {popupFloorId && (
+        <FloorPopup
+          floorId={popupFloorId}
+          onClose={() => setPopupFloorId(null)}
+        />
       )}
     </div>
   );

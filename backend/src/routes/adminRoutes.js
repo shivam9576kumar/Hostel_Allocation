@@ -8,6 +8,7 @@ const {
   uploadStudents,
   getHostels,
   getHostelById,
+  getHostelSummary,
   createHostel,
   updateHostel,
   deleteHostel,
@@ -97,13 +98,16 @@ router.get('/students', getStudents);
 
 // Hostel Management
 router.get('/hostels', getHostels);
+router.get('/hostels/:hostelId/summary', getHostelSummary);
 router.get('/hostels/:id', getHostelById);
 router.get('/hostels/:hostelId', getHostelById);
 router.post('/hostels', createHostel);
 router.put('/hostels/:id', updateHostel);
 router.put('/hostels/:id/settings', updateHostel);
 router.delete('/hostels/:id', deleteHostel);
+router.delete('/hostels/:hostelId', deleteHostel);
 router.post('/hostels/:id/clear', clearHostelData);
+router.post('/hostels/:hostelId/clear', clearHostelData);
 router.get('/hostels/:hostelId/rules', getHostelAllocationRules);
 
 // Allocation Rules Management
@@ -114,6 +118,7 @@ router.delete('/allocation-rules/:ruleId', deleteAllocationRule);
 
 // Block Management
 router.get('/blocks/summary', getBlockSummary);
+router.get('/blocks/:blockId/summary', getBlockSummary);
 router.get('/blocks', getBlocks);
 router.get('/blocks/:id', getBlockById);
 router.get('/blocks/:blockId', getBlockById);
@@ -123,6 +128,7 @@ router.put('/blocks/:id/reserve', toggleBlockReservation);
 
 // Floor Management
 router.get('/floors/summary', getFloorSummary);
+router.get('/floors/:floorId/summary', getFloorSummary);
 router.get('/floors', getFloors);
 router.get('/floors/:id', getFloorById);
 router.post('/floors', createFloor);

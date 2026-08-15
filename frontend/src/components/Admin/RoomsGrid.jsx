@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { Building2, Layers, Grid, ArrowLeft } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../../api/axios';
@@ -9,10 +9,14 @@ import AddRoomsForm from './AddRoomsForm';
 import SearchAndFilterBar from './SearchAndFilterBar';
 import BulkActionsBar from './BulkActionsBar';
 import RoomGridContainer from './RoomGridContainer';
-import RoomDetailModal from './RoomDetailModal';
+import RoomPopup from './RoomPopup';
 
 const RoomsGrid = () => {
-  const { hostelId, blockId, floorId } = useParams();
+  const { hostelId: paramHostelId, blockId: paramBlockId, floorId: paramFloorId } = useParams();
+  const [searchParams] = useSearchParams();
+  const queryFloorId = searchParams.get('floorId');
+  const floorId = paramFloorId || queryFloorId;
+
   const navigate = useNavigate();
 
   // State
@@ -24,6 +28,7 @@ const RoomsGrid = () => {
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [showReserved, setShowReserved] = useState(false);
   const [selectedRoomId, setSelectedRoomId] = useState(null);
+  const [selectedRoomNumber, setSelectedRoomNumber] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [floorInfo, setFloorInfo] = useState(null);
 
@@ -88,7 +93,7 @@ const RoomsGrid = () => {
       filtered = filtered.filter(r => !r.is_reserved);
     }
 
-    // Sort rooms numerically (1, 2, 3, 10, 101)
+    // Sort rooms numerically
     filtered.sort((a, b) => parseInt(a.room_number, 10) - parseInt(b.room_number, 10));
 
     setFilteredRooms(filtered);
@@ -148,15 +153,17 @@ const RoomsGrid = () => {
   };
 
   const goBack = () => {
-    if (hostelId && blockId) {
-      navigate(`/admin/hostels/${hostelId}/blocks/${blockId}/floors`);
+    if (paramHostelId && paramBlockId) {
+      navigate(`/admin/hostels/${paramHostelId}/blocks/${paramBlockId}/floors`);
     } else {
       navigate(-1);
     }
   };
 
   const handleRoomClick = (roomId) => {
+    const targetRoom = rooms.find(r => r.room_id === roomId);
     setSelectedRoomId(roomId);
+    setSelectedRoomNumber(targetRoom?.room_number || String(roomId));
     setModalOpen(true);
   };
 
@@ -175,7 +182,7 @@ const RoomsGrid = () => {
           </div>
           <h2 className="text-xl font-extrabold text-slate-900">Select a Floor to View Rooms</h2>
           <p className="text-sm text-slate-500">
-            Rooms Grid is strictly floor-specific. Please navigate through Hostels $\rightarrow$ Blocks $\rightarrow$ Floors to select a floor.
+            Rooms Grid is strictly floor-specific. Please navigate through Hostels → Blocks → Floors to select a floor.
           </p>
           <button
             onClick={() => navigate('/admin/hostels')}
@@ -192,8 +199,8 @@ const RoomsGrid = () => {
     <div className="space-y-6">
       {/* Breadcrumb Hierarchy */}
       <Breadcrumb
-        hostelId={hostelId}
-        blockId={blockId}
+        hostelId={paramHostelId}
+        blockId={paramBlockId}
         floorId={floorId}
         hostelName={hostelName}
         blockName={blockName}
@@ -242,13 +249,14 @@ const RoomsGrid = () => {
         onRefresh={fetchRooms}
       />
 
-      {/* Room Detail Modal */}
-      <RoomDetailModal
-        isOpen={modalOpen}
-        onClose={() => setModalOpen(false)}
-        roomId={selectedRoomId}
-        onRefresh={fetchRooms}
-      />
+      {/* Room Occupants Popup */}
+      {modalOpen && selectedRoomId && (
+        <RoomPopup
+          roomId={selectedRoomId}
+          roomNumber={selectedRoomNumber}
+          onClose={() => setModalOpen(false)}
+        />
+      )}
     </div>
   );
 };
