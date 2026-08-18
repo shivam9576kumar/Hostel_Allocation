@@ -1,67 +1,33 @@
 const { Sequelize } = require('sequelize');
 const path = require('path');
-const env = require('./env');
+require('dotenv').config({ path: path.join(__dirname, '../../.env') });
 
-const dialect = process.env.DB_DIALECT || (process.env.DB_HOST && process.env.DB_HOST !== 'localhost' ? 'postgres' : 'sqlite');
+const connectionString = process.env.DATABASE_URL || 'postgresql://hostel_user:Hostel@123@localhost:5432/hostel_booking';
 
-let sequelize;
-
-if (dialect === 'postgres') {
-  sequelize = new Sequelize(
-    env.db.name,
-    env.db.user,
-    env.db.password,
-    {
-      host: env.db.host,
-      port: env.db.port,
-      dialect: 'postgres',
-      logging: false,
-      pool: {
-        max: 15,
-        min: 0,
-        acquire: 30000,
-        idle: 10000
-      },
-      define: {
-        timestamps: false,
-        underscored: true
-      }
-    }
-  );
-} else {
-  const dbPath = path.join(__dirname, '../../hostel_booking.sqlite');
-  sequelize = new Sequelize({
-    dialect: 'sqlite',
-    storage: dbPath,
-    logging: false,
-    define: {
-      timestamps: false,
-      underscored: true
-    }
-  });
-}
+const sequelize = new Sequelize(connectionString, {
+  dialect: 'postgres',
+  logging: false,
+  pool: {
+    max: 20,              // Maximum number of connections
+    min: 0,               // Minimum number of connections
+    acquire: 30000,       // Maximum time (ms) to wait for a connection
+    idle: 10000,          // Time (ms) before a connection is released
+  },
+  dialectOptions: {
+    ssl: process.env.DB_SSL === 'true' ? { require: true, rejectUnauthorized: false } : false,
+  },
+  define: {
+    timestamps: false,
+    underscored: true
+  }
+});
 
 async function syncDatabaseSchema() {
   try {
     const dialect = sequelize.getDialect();
-    await sequelize.sync(); // Ensures missing tables (e.g. pdf_history) are created
+    await sequelize.sync();
 
-    if (dialect === 'sqlite') {
-      const [results] = await sequelize.query("PRAGMA table_info(swap_requests);");
-      const columns = results.map(r => r.name);
-      if (!columns.includes('old_pdf_paths')) {
-        await sequelize.query("ALTER TABLE swap_requests ADD COLUMN old_pdf_paths TEXT DEFAULT '{}';");
-        console.log('[Database Schema Sync] Added column old_pdf_paths to swap_requests.');
-      }
-      if (!columns.includes('new_pdf_paths')) {
-        await sequelize.query("ALTER TABLE swap_requests ADD COLUMN new_pdf_paths TEXT DEFAULT '{}';");
-        console.log('[Database Schema Sync] Added column new_pdf_paths to swap_requests.');
-      }
-      if (!columns.includes('movers')) {
-        await sequelize.query("ALTER TABLE swap_requests ADD COLUMN movers TEXT DEFAULT '{}';");
-        console.log('[Database Schema Sync] Added column movers to swap_requests.');
-      }
-    } else if (dialect === 'postgres') {
+    if (dialect === 'postgres') {
       await sequelize.query("ALTER TABLE swap_requests ADD COLUMN IF NOT EXISTS old_pdf_paths JSONB DEFAULT '{}';");
       await sequelize.query("ALTER TABLE swap_requests ADD COLUMN IF NOT EXISTS new_pdf_paths JSONB DEFAULT '{}';");
       await sequelize.query("ALTER TABLE swap_requests ADD COLUMN IF NOT EXISTS movers JSONB DEFAULT '{}';");
@@ -87,4 +53,3 @@ async function initDatabaseConnection() {
 module.exports = sequelize;
 module.exports.initDatabaseConnection = initDatabaseConnection;
 module.exports.syncDatabaseSchema = syncDatabaseSchema;
-

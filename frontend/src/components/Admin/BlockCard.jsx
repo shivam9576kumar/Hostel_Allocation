@@ -57,15 +57,17 @@ const BlockCard = ({ block, hostelId, onBlockUpdated, onViewFloors, onClick }) =
 
   // Block Management View (/admin/blocks)
   const handleViewFloors = () => {
-    if (onViewFloors) {
-      onViewFloors(block);
+    const hId = hostelId || block.hostel_id;
+    console.log('🔍 hostelId prop:', hostelId);
+    console.log('🔍 block.hostel_id:', block.hostel_id);
+    console.log('🔍 navigating with hId:', hId, 'blockId:', block.block_id);
+
+    if (hId && block.block_id) {
+      navigate(`/admin/hostels/${hId}/blocks/${block.block_id}/floors`);
+    } else if (block.block_id) {
+      navigate(`/admin/floors?blockId=${block.block_id}`);
     } else {
-      const hId = hostelId || block.hostel_id;
-      if (hId && block.block_id) {
-        navigate(`/admin/hostels/${hId}/blocks/${block.block_id}/floors`);
-      } else {
-        toast.error('Hostel or Block ID missing');
-      }
+      toast.error('Block ID missing');
     }
   };
 
@@ -165,7 +167,7 @@ const BlockCard = ({ block, hostelId, onBlockUpdated, onViewFloors, onClick }) =
         </button>
 
         <button
-          onClick={() => window.location.href = `/admin/floors?blockId=${block.block_id}`}
+          onClick={handleViewFloors}
           className="px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-emerald-200 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 transition flex items-center gap-1 shadow-sm"
         >
           <Layers className="w-3.5 h-3.5 text-emerald-600" /> Manage Floors

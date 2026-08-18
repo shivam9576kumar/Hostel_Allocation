@@ -9,4 +9,27 @@ dist/
 frontend/dist/
 npm-debug.log
 
+# ===== LOCAL DATABASES (NEVER PUSH) =====
+backend/hostel_booking.sqlite
+*.sqlite
+*.sqlite3
+
+# ===== DATABASE BACKUPS (NEVER PUSH) =====
+backups/
+*.sql
+*.dump
+
+# ===== ENVIRONMENT VARIABLES (NEVER PUSH) =====
+.env
+backend/.env
+frontend/.env
+*.env
+*.env.local
+
+# ===== OS / EDITOR FILES (OPTIONAL BUT GOOD) =====
+.DS_Store
+Thumbs.db
+*.log
+
+
 

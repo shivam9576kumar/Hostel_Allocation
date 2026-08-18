@@ -194,6 +194,32 @@ const Dashboard = () => {
     );
   }
 
+  if (error && !user) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-6 text-slate-100">
+        <div className="bg-slate-800 border border-slate-700 rounded-3xl p-8 max-w-md w-full text-center space-y-4 shadow-xl">
+          <ShieldAlert className="w-12 h-12 text-rose-400 mx-auto" />
+          <h2 className="text-xl font-bold text-white">Service Error</h2>
+          <p className="text-sm text-slate-300">{error}</p>
+          <div className="pt-2 flex justify-center gap-3">
+            <button
+              onClick={fetchDashboard}
+              className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-xl transition shadow-md flex items-center gap-2"
+            >
+              <RefreshCw className="w-4 h-4" /> Retry Connection
+            </button>
+            <button
+              onClick={logout}
+              className="px-5 py-2.5 bg-slate-700 hover:bg-slate-600 text-slate-200 font-bold text-xs rounded-xl transition"
+            >
+              Sign Out
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900">
       {/* Header Bar */}

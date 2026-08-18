@@ -1,5 +1,6 @@
 const { Student, Room, Floor, Block, Hostel, Booking, AllocationRule, PDFHistory, sequelize } = require('../models');
 const redisClient = require('../config/redis');
+const pdfQueue = require('../queues/pdfQueue');
 const { generatePairingCode } = require('../utils/codeGenerator');
 const { generateAllocationPDF } = require('../utils/pdfGenerator');
 const { Op } = require('sequelize');
@@ -90,36 +91,16 @@ async function executeRoomPairing({ room, studentB, code, transaction, hostel })
       console.warn('[Redis Del Warning]:', rDelErr.message);
     }
 
-    // Generate PDF for all occupants and save to PDFHistory
-    const allOccupants = await Student.findAll({
-      where: { roll_number: allRolls },
-      order: [['created_at', 'ASC'], ['roll_number', 'ASC']]
-    });
-
-    const { filePath } = await generateAllocationPDF({
-      hostelName: hostel.name,
-      blockName: room.Floor.Block.name,
-      floorNumber: room.Floor.floor_number,
-      roomNumber: room.room_number,
-      student1: allOccupants[0] || studentA,
-      student2: allOccupants[1] || studentB,
-      student3: allOccupants[2] || null,
-      allocationDate: now
-    });
-
-    for (const occ of allOccupants) {
-      await PDFHistory.update(
-        { is_current: false },
-        { where: { student_roll: occ.roll_number } }
-      );
-      await PDFHistory.create({
-        student_roll: occ.roll_number,
-        room_id: room.room_id,
-        pdf_path: filePath,
-        version: 1,
-        is_swap: false,
-        is_current: true
+    // Queue asynchronous PDF generation job via BullMQ
+    try {
+      await pdfQueue.add('generate', {
+        roomId: room.room_id,
+        occupantRolls: allRolls,
+        allocationDate: now
       });
+      console.log(`📄 PDF generation job added to queue for room ${room.room_id}`);
+    } catch (queueErr) {
+      console.error('[pdfQueue Add Warning]:', queueErr.message);
     }
 
     return {
@@ -184,9 +165,9 @@ async function bookRoom(req, res) {
     }
 
     // 2. Query Room with row locking
+    await Room.findByPk(roomId, { transaction, ...getLockOption(transaction) });
     const room = await Room.findByPk(roomId, {
       transaction,
-      ...getLockOption(transaction),
       include: [{
         model: Floor,
         include: [{
@@ -342,9 +323,9 @@ async function pairRoom(req, res) {
       return res.status(400).json({ error: `You already have an active booking status: ${studentB.booking_status}` });
     }
 
+    await Room.findByPk(roomId, { transaction, ...getLockOption(transaction) });
     const room = await Room.findByPk(roomId, {
       transaction,
-      ...getLockOption(transaction),
       include: [{
         model: Floor,
         include: [{
@@ -476,9 +457,9 @@ async function pairByCode(req, res) {
 
     let room;
     if (roomId) {
+      await Room.findByPk(roomId, { transaction, ...getLockOption(transaction) });
       room = await Room.findByPk(roomId, {
         transaction,
-        ...getLockOption(transaction),
         include: [{
           model: Floor,
           include: [{
@@ -490,18 +471,20 @@ async function pairByCode(req, res) {
     }
 
     if (!room) {
-      room = await Room.findOne({
-        where: { pairing_code: cleanCode },
-        transaction,
-        ...getLockOption(transaction),
-        include: [{
-          model: Floor,
+      const rawRoom = await Room.findOne({ where: { pairing_code: cleanCode }, transaction });
+      if (rawRoom) {
+        await Room.findByPk(rawRoom.room_id, { transaction, ...getLockOption(transaction) });
+        room = await Room.findByPk(rawRoom.room_id, {
+          transaction,
           include: [{
-            model: Block,
-            include: [Hostel]
+            model: Floor,
+            include: [{
+              model: Block,
+              include: [Hostel]
+            }]
           }]
-        }]
-      });
+        });
+      }
     }
 
     if (!room) {

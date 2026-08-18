@@ -1,6 +1,6 @@
 import React from 'react';
 
-const FloorTile = ({ floor, onSelect, isAvailable = true, isSelected = false }) => {
+const FloorTile = React.memo(({ floor, onSelect, isAvailable = true, isSelected = false }) => {
   const available = isAvailable && !floor.is_reserved;
   return (
     <button
@@ -16,6 +16,6 @@ const FloorTile = ({ floor, onSelect, isAvailable = true, isSelected = false }) 
       {floor.floor_number}
     </button>
   );
-};
+});
 
 export default FloorTile;

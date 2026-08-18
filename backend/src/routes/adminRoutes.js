@@ -42,7 +42,9 @@ const {
   createAllocationRule,
   updateAllocationRule,
   deleteAllocationRule,
-  getHostelAllocationRules
+  getHostelAllocationRules,
+  getFailedPdfJobs,
+  retryFailedPdfJob
 } = require('../controllers/adminController');
 
 const verifyAdmin = adminAuth;
@@ -147,5 +149,9 @@ router.post('/rooms/bulk', bulkCreateRooms);
 router.delete('/rooms/:id', deleteRoom);
 router.put('/rooms/:id/reserve', toggleRoomReservation);
 router.post('/rooms/:roomId/release', releaseOccupants);
+
+// PDF Queue Dead Letter Queue (DLQ) Management
+router.get('/pdf-failures', getFailedPdfJobs);
+router.post('/pdf-failures/:jobId/retry', retryFailedPdfJob);
 
 module.exports = router;

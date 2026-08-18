@@ -3,6 +3,7 @@ const { Op } = require('sequelize');
 const path = require('path');
 const fs = require('fs');
 const { generateAllocationPDF } = require('../utils/pdfGenerator');
+const redisClient = require('../config/redis');
 
 // Student Dashboard Info & State Persistence Check
 async function getStudentDashboard(req, res) {
@@ -83,10 +84,22 @@ async function getStudentDashboard(req, res) {
   }
 }
 
-// Get Active & Eligible Hostels for Student
+// Get Active & Eligible Hostels for Student (Redis Cached - 5-min TTL)
 async function getEligibleHostels(req, res) {
   try {
     const student = req.student;
+    const cacheKey = `hostels:${student.gender}:${student.programme}:${student.year}`;
+
+    // Try Redis cache first
+    try {
+      const cached = await redisClient.get(cacheKey);
+      if (cached) {
+        return res.json(JSON.parse(cached));
+      }
+    } catch (cacheErr) {
+      console.warn('[Redis Cache Warning]:', cacheErr.message);
+    }
+
     const { GlobalSetting } = require('../models');
     const now = new Date();
 
@@ -120,18 +133,38 @@ async function getEligibleHostels(req, res) {
       }
     }
 
-    return res.json({ hostels });
+    const responsePayload = { hostels };
+
+    // Store in Redis with 300s TTL (5 minutes)
+    try {
+      await redisClient.set(cacheKey, JSON.stringify(responsePayload), 'EX', 300);
+    } catch (setCacheErr) {
+      console.warn('[Redis Cache Set Warning]:', setCacheErr.message);
+    }
+
+    return res.json(responsePayload);
   } catch (err) {
     console.error('Error in getEligibleHostels:', err);
     return res.status(500).json({ error: 'Failed to fetch eligible hostels.' });
   }
 }
 
-// Get Non-Reserved Blocks of an Eligible Hostel for Student's Programme & Year
+// Get Non-Reserved Blocks of an Eligible Hostel (Redis Cached - 5-min TTL)
 async function getHostelBlocks(req, res) {
   try {
     const { hostelId } = req.params;
     const student = req.student;
+    const cacheKey = `blocks:${hostelId}:${student.programme}:${student.gender}:${student.year}`;
+
+    // Try Redis cache first
+    try {
+      const cached = await redisClient.get(cacheKey);
+      if (cached) {
+        return res.json(JSON.parse(cached));
+      }
+    } catch (cacheErr) {
+      console.warn('[Redis Cache Warning]:', cacheErr.message);
+    }
 
     const hostel = await Hostel.findByPk(hostelId);
     if (!hostel) {
@@ -164,18 +197,38 @@ async function getHostelBlocks(req, res) {
       order: [['name', 'ASC']]
     });
 
-    return res.json({ blocks });
+    const responsePayload = { blocks };
+
+    // Store in Redis with 300s TTL (5 minutes)
+    try {
+      await redisClient.set(cacheKey, JSON.stringify(responsePayload), 'EX', 300);
+    } catch (setCacheErr) {
+      console.warn('[Redis Cache Set Warning]:', setCacheErr.message);
+    }
+
+    return res.json(responsePayload);
   } catch (err) {
     console.error('Error in getHostelBlocks:', err);
     return res.status(500).json({ error: 'Failed to fetch blocks.' });
   }
 }
 
-// Get Non-Reserved Floors of a Block within Student's Allowed Floor Range
+// Get Non-Reserved Floors of a Block (Redis Cached - 5-min TTL)
 async function getBlockFloors(req, res) {
   try {
     const { blockId } = req.params;
     const student = req.student;
+    const cacheKey = `floors:${blockId}:${student.programme}:${student.year}`;
+
+    // Try Redis cache first
+    try {
+      const cached = await redisClient.get(cacheKey);
+      if (cached) {
+        return res.json(JSON.parse(cached));
+      }
+    } catch (cacheErr) {
+      console.warn('[Redis Cache Warning]:', cacheErr.message);
+    }
 
     const block = await Block.findOne({
       where: { block_id: blockId, is_reserved: false }
@@ -214,18 +267,38 @@ async function getBlockFloors(req, res) {
       order: [['floor_number', 'ASC']]
     });
 
-    return res.json({ floors });
+    const responsePayload = { floors };
+
+    // Store in Redis with 300s TTL (5 minutes)
+    try {
+      await redisClient.set(cacheKey, JSON.stringify(responsePayload), 'EX', 300);
+    } catch (setCacheErr) {
+      console.warn('[Redis Cache Set Warning]:', setCacheErr.message);
+    }
+
+    return res.json(responsePayload);
   } catch (err) {
     console.error('Error in getBlockFloors:', err);
     return res.status(500).json({ error: 'Failed to fetch floors.' });
   }
 }
 
-// Get Non-Reserved Rooms of a Floor with Minimal Attributes & Capacity Filter
+// Get Non-Reserved Rooms of a Floor (Redis Cached - 30-sec Short TTL for Real-time Occupancy)
 async function getFloorRooms(req, res) {
   try {
     const { floorId } = req.params;
     const student = req.student;
+    const cacheKey = `rooms:${floorId}:${student.programme}:${student.gender}:${student.year}`;
+
+    // Try Redis cache first
+    try {
+      const cached = await redisClient.get(cacheKey);
+      if (cached) {
+        return res.json(JSON.parse(cached));
+      }
+    } catch (cacheErr) {
+      console.warn('[Redis Cache Warning]:', cacheErr.message);
+    }
 
     const floor = await Floor.findByPk(floorId, {
       include: [{ model: Block }]
@@ -262,7 +335,16 @@ async function getFloorRooms(req, res) {
       order: [['room_number', 'ASC']]
     });
 
-    return res.json({ success: true, rooms });
+    const responsePayload = { success: true, rooms };
+
+    // Store in Redis with 30s short TTL for real-time room occupancy updates
+    try {
+      await redisClient.set(cacheKey, JSON.stringify(responsePayload), 'EX', 30);
+    } catch (setCacheErr) {
+      console.warn('[Redis Cache Set Warning]:', setCacheErr.message);
+    }
+
+    return res.json(responsePayload);
   } catch (err) {
     console.error('Error in getFloorRooms:', err);
     return res.status(500).json({ error: 'Failed to fetch rooms.' });
@@ -423,6 +505,28 @@ async function getRoomOccupants(req, res) {
   }
 }
 
+// Get PDF status (whether the current PDF is ready)
+async function getPdfStatus(req, res) {
+  try {
+    const studentRoll = req.student.roll_number;
+
+    // Find the latest current PDF for this student
+    const latestPdf = await PDFHistory.findOne({
+      where: { student_roll: studentRoll, is_current: true },
+      order: [['version', 'DESC']],
+    });
+
+    return res.json({
+      isReady: !!latestPdf,
+      version: latestPdf ? latestPdf.version : null,
+      pdfPath: latestPdf ? latestPdf.pdf_path : null,
+    });
+  } catch (err) {
+    console.error('Error in getPdfStatus:', err);
+    return res.status(500).json({ error: err.message });
+  }
+}
+
 module.exports = {
   getStudentDashboard,
   getEligibleHostels,
@@ -430,5 +534,6 @@ module.exports = {
   getBlockFloors,
   getFloorRooms,
   downloadAllocationPDF,
-  getRoomOccupants
+  getRoomOccupants,
+  getPdfStatus
 };

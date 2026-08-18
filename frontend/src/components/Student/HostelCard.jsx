@@ -1,6 +1,6 @@
 import React from 'react';
 
-const HostelCard = ({ hostel, onSelect, isSelected }) => {
+const HostelCard = React.memo(({ hostel, onSelect, isSelected }) => {
   const isOpen = hostel.status !== 'full';
   return (
     <div
@@ -31,6 +31,6 @@ const HostelCard = ({ hostel, onSelect, isSelected }) => {
       )}
     </div>
   );
-};
+});
 
 export default HostelCard;

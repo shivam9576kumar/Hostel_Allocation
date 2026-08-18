@@ -1,6 +1,6 @@
 import React from 'react';
 
-const RoomGrid = ({ rooms = [], onSelectRoom }) => {
+const RoomGrid = React.memo(({ rooms = [], onSelectRoom }) => {
   if (!rooms || rooms.length === 0) {
     return (
       <div className="bg-white rounded-2xl p-8 text-center border border-slate-200 shadow-sm">
@@ -80,6 +80,6 @@ const RoomGrid = ({ rooms = [], onSelectRoom }) => {
       </div>
     </div>
   );
-};
+});
 
 export default RoomGrid;

@@ -11,6 +11,7 @@ export const pairByCode = (code) => api.post('/student/pair-by-code', { code });
 export const getRoomOccupants = (roomId) => api.get(`/student/room/${roomId}/occupants`);
 export const downloadAllocationPDF = () => api.get('/student/pdf', { responseType: 'blob' });
 export const getActiveSwap = () => api.get('/student/swap/active');
+export const getPdfStatus = () => api.get('/student/pdf-status');
 export const getEligibleSwapRooms = () => api.get('/student/swap/eligible-rooms');
 export const getSwapRequests = () => api.get('/student/swap/requests');
 export const requestSwap = (targetRoomId) => api.post('/student/swap/request', { target_room_id: targetRoomId });

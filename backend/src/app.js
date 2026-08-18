@@ -14,15 +14,50 @@ const adminRoutes = require('./routes/adminRoutes');
 const studentRoutes = require('./routes/studentRoutes');
 const swapRoutes = require('./routes/swapRoutes');
 
+const compression = require('compression');
+const rateLimit = require('express-rate-limit');
+
 const app = express();
 
-// Middlewares
+// 1. CORS Middleware (Must be FIRST before any rate limit or routes so error responses include CORS headers)
 app.use(cors({
-  origin: ['http://localhost:3000', 'http://localhost:5173', 'http://127.0.0.1:3000', 'http://127.0.0.1:5173'],
-  credentials: true
+  origin: true, // Dynamically mirror request origin for localhost / local IP testing
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept']
 }));
+
+// Enable HTTP response compression (reduces payload by 60-80%)
+app.use(compression());
+
+// Global Rate Limiter (100 requests per minute per IP)
+const globalLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 100,
+  message: { error: 'Too many requests. Please try again later.' },
+});
+app.use(globalLimiter);
+
+// Body parsers
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Bull-Board Queue Monitoring Dashboard Setup
+const { createBullBoard } = require('@bull-board/api');
+const { BullMQAdapter } = require('@bull-board/api/bullMQAdapter');
+const { ExpressAdapter } = require('@bull-board/express');
+const pdfQueue = require('./queues/pdfQueue');
+const failedPdfQueue = require('./queues/failedPdfQueue');
+
+const serverAdapter = new ExpressAdapter();
+serverAdapter.setBasePath('/admin/queues');
+
+createBullBoard({
+  queues: [new BullMQAdapter(pdfQueue), new BullMQAdapter(failedPdfQueue)],
+  serverAdapter: serverAdapter,
+});
+
+app.use('/admin/queues', serverAdapter.getRouter());
 
 // Healthcheck Route
 app.get('/health', (req, res) => {

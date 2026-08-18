@@ -1,6 +1,6 @@
 import React from 'react';
 
-const BlockPill = ({ block, onSelect, isSelected }) => {
+const BlockPill = React.memo(({ block, onSelect, isSelected }) => {
   const isOpen = block.is_reserved !== true && block.status !== 'full';
   return (
     <button
@@ -16,6 +16,6 @@ const BlockPill = ({ block, onSelect, isSelected }) => {
       {block.name} {isOpen ? '✅' : '🔴'}
     </button>
   );
-};
+});
 
 export default BlockPill;

@@ -13,7 +13,7 @@ import {
   ArrowLeftRight
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { getRoomOccupants, downloadAllocationPDF, getActiveSwap } from '../../api/student';
+import { getRoomOccupants, downloadAllocationPDF, getActiveSwap, getPdfStatus } from '../../api/student';
 import SwapButton from './SwapButton';
 import SwapModal from './SwapModal';
 import SwapConsentCard from './SwapConsentCard';
@@ -26,8 +26,38 @@ const RoomStatusCard = ({ room: initialRoom, user }) => {
   const [timeRemaining, setTimeRemaining] = useState('');
   const [swapActive, setSwapActive] = useState(false);
   const [isSwapModalOpen, setIsSwapModalOpen] = useState(false);
+  const [isPdfReady, setIsPdfReady] = useState(false);
+  const [polling, setPolling] = useState(false);
 
   const roomId = room?.room_id || room?.id;
+
+  // Poll for PDF readiness when room is full / locked
+  const capacityCheck = room?.capacity || 3;
+  const currentOccupancyCheck = Math.max(room?.current_occupancy || 0, occupants.length);
+  const isFullCheck = currentOccupancyCheck >= capacityCheck || room?.status === 'Locked';
+
+  useEffect(() => {
+    if (!isFullCheck) return;
+
+    const checkStatus = async () => {
+      try {
+        const res = await getPdfStatus();
+        if (res.data?.isReady) {
+          setIsPdfReady(true);
+          setPolling(false);
+        }
+      } catch (err) {
+        console.error('Error checking PDF status:', err);
+      }
+    };
+
+    checkStatus();
+    if (!isPdfReady) {
+      setPolling(true);
+      const interval = setInterval(checkStatus, 2000);
+      return () => clearInterval(interval);
+    }
+  }, [isFullCheck, isPdfReady]);
 
   // Poll for occupants & room state every 3 seconds
   useEffect(() => {
@@ -280,19 +310,39 @@ const RoomStatusCard = ({ room: initialRoom, user }) => {
         {/* Locked Room Action Section */}
         {isFull ? (
           <div className="pt-2 text-center space-y-3">
-            <p className="text-sm font-medium text-slate-700 flex items-center justify-center gap-1.5">
-              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-              Your allocation certificate is ready for download.
-            </p>
+            {isPdfReady ? (
+              <>
+                <p className="text-sm font-medium text-slate-700 flex items-center justify-center gap-1.5">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                  Your allocation certificate is ready for download.
+                </p>
 
-            <button
-              onClick={handleDownloadPdf}
-              disabled={downloadingPdf}
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 px-6 rounded-xl transition flex items-center justify-center gap-2 text-sm shadow-lg shadow-blue-600/25 disabled:opacity-50"
-            >
-              <Download className="w-5 h-5" />
-              {downloadingPdf ? 'Downloading Certificate...' : 'Download Official PDF'}
-            </button>
+                <button
+                  onClick={handleDownloadPdf}
+                  disabled={downloadingPdf}
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 px-6 rounded-xl transition flex items-center justify-center gap-2 text-sm shadow-lg shadow-blue-600/25 disabled:opacity-50"
+                >
+                  <Download className="w-5 h-5" />
+                  {downloadingPdf ? 'Downloading Certificate...' : 'Download Official PDF'}
+                </button>
+              </>
+            ) : (
+              <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl flex flex-col items-center gap-2 text-amber-900">
+                <div className="flex items-center gap-2 text-sm font-bold">
+                  <Clock className="w-4 h-4 text-amber-600 animate-spin" />
+                  ⏳ Your PDF is being generated in the background. Please wait...
+                </div>
+                <button 
+                  onClick={async () => {
+                    const res = await getPdfStatus();
+                    if (res.data?.isReady) setIsPdfReady(true);
+                  }} 
+                  className="text-xs text-blue-600 hover:underline font-semibold"
+                >
+                  Check now
+                </button>
+              </div>
+            )}
           </div>
         ) : (
           <p className="text-xs text-slate-500 text-center">

@@ -36,15 +36,16 @@ const StudentDashboard = ({ filters }) => {
 
   // Group programme data for bar chart
   const programmeData = stats.programmeBreakdown.reduce((acc, item) => {
+    const countVal = Number(item.count) || 0;
     const existing = acc.find(p => p.programme === item.programme);
     if (existing) {
-      existing[`Yr${item.year}`] = item.count;
-      existing.total += item.count;
+      existing[`Yr${item.year}`] = countVal;
+      existing.total += countVal;
     } else {
       acc.push({
         programme: item.programme,
-        [`Yr${item.year}`]: item.count,
-        total: item.count
+        [`Yr${item.year}`]: countVal,
+        total: countVal
       });
     }
     return acc;
@@ -53,7 +54,7 @@ const StudentDashboard = ({ filters }) => {
   // Gender data for pie chart
   const genderData = stats.genderBreakdown.map(item => ({
     name: item.gender,
-    value: item.count
+    value: Number(item.count) || 0
   }));
 
   const COLORS = ['#3b82f6', '#ec4899', '#10b981', '#f59e0b', '#8b5cf6', '#14b8a6'];
@@ -181,12 +182,13 @@ const StudentDashboard = ({ filters }) => {
       {/* Programme Details Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {stats.programmeBreakdown.reduce((acc, item) => {
+          const countNum = Number(item.count) || 0;
           const prog = acc.find(p => p.programme === item.programme);
           if (prog) {
-            prog.years.push({ year: item.year, count: item.count });
-            prog.total += item.count;
+            prog.years.push({ year: item.year, count: countNum });
+            prog.total += countNum;
           } else {
-            acc.push({ programme: item.programme, years: [{ year: item.year, count: item.count }], total: item.count });
+            acc.push({ programme: item.programme, years: [{ year: item.year, count: countNum }], total: countNum });
           }
           return acc;
         }, []).map((prog, idx) => (

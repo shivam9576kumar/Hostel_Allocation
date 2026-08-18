@@ -1,6 +1,6 @@
 import React from 'react';
 
-const RoomCard = ({ room, onSelect }) => {
+const RoomCard = React.memo(({ room, onSelect }) => {
   const statusConfig = {
     'Vacant': { bg: 'bg-green-50', border: 'border-green-300', hover: 'hover:border-green-500 hover:shadow-md', text: 'text-green-700', cursor: 'cursor-pointer' },
     'Pending_Pairing': { bg: 'bg-yellow-50', border: 'border-yellow-300', hover: '', text: 'text-yellow-700', cursor: 'cursor-not-allowed' },
@@ -22,6 +22,6 @@ const RoomCard = ({ room, onSelect }) => {
       )}
     </div>
   );
-};
+});
 
 export default RoomCard;

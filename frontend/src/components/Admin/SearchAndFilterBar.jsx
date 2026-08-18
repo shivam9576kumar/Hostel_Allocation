@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Search } from 'lucide-react';
+import { debounce } from 'lodash';
 
 const SearchAndFilterBar = ({
   searchTerm,
@@ -9,14 +10,37 @@ const SearchAndFilterBar = ({
   showReserved,
   setShowReserved
 }) => {
+  const [localInput, setLocalInput] = useState(searchTerm);
+
+  // Debounced state update for search to reduce state churn and filtering frequency
+  const debouncedSetSearch = useMemo(
+    () =>
+      debounce((value) => {
+        setSearchTerm(value);
+      }, 300),
+    [setSearchTerm]
+  );
+
+  useEffect(() => {
+    return () => {
+      debouncedSetSearch.cancel();
+    };
+  }, [debouncedSetSearch]);
+
+  const handleChange = (e) => {
+    const value = e.target.value;
+    setLocalInput(value);
+    debouncedSetSearch(value);
+  };
+
   return (
     <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm flex flex-wrap items-center justify-between gap-4">
       <div className="relative flex-1 min-w-[220px]">
         <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
         <input
           type="text"
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
+          value={localInput}
+          onChange={handleChange}
           placeholder="Search by room number..."
           className="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-xl text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
@@ -51,4 +75,4 @@ const SearchAndFilterBar = ({
   );
 };
 
-export default SearchAndFilterBar;
+export default React.memo(SearchAndFilterBar);

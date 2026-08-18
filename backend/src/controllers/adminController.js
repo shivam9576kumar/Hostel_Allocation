@@ -1053,10 +1053,10 @@ async function getStudentCount(req, res) {
     return res.json({
       success: true,
       data: {
-        total: totalCount,
-        programmeBreakdown,
-        genderBreakdown,
-        statusBreakdown
+        total: parseInt(totalCount, 10) || 0,
+        programmeBreakdown: programmeBreakdown.map(p => ({ ...p, count: parseInt(p.count, 10) || 0 })),
+        genderBreakdown: genderBreakdown.map(g => ({ ...g, count: parseInt(g.count, 10) || 0 })),
+        statusBreakdown: statusBreakdown.map(s => ({ ...s, count: parseInt(s.count, 10) || 0 }))
       }
     });
 
@@ -1877,6 +1877,54 @@ async function getBlockById(req, res) {
   }
 }
 
+// DLQ Admin Handlers: Get Failed PDF Jobs
+async function getFailedPdfJobs(req, res) {
+  try {
+    const failedPdfQueue = require('../queues/failedPdfQueue');
+    const jobs = await failedPdfQueue.getJobs(['failed', 'completed', 'waiting', 'active']);
+    const formattedJobs = jobs.map(j => ({
+      id: j.id,
+      name: j.name,
+      data: j.data,
+      failedReason: j.failedReason,
+      timestamp: j.timestamp
+    }));
+    return res.json({ success: true, jobs: formattedJobs });
+  } catch (err) {
+    console.error('Error fetching failed PDF jobs:', err);
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+// DLQ Admin Handlers: Retry Failed PDF Job
+async function retryFailedPdfJob(req, res) {
+  try {
+    const pdfQueue = require('../queues/pdfQueue');
+    const failedPdfQueue = require('../queues/failedPdfQueue');
+    const { jobId } = req.params;
+
+    const job = await failedPdfQueue.getJob(jobId);
+    if (!job) {
+      return res.status(404).json({ error: `Failed job with ID ${jobId} not found.` });
+    }
+
+    // Extract payload and re-add to main pdfQueue
+    const originalData = job.data.data || job.data;
+    await pdfQueue.add('generate', originalData, {
+      attempts: 3,
+      backoff: { type: 'exponential', delay: 2000 },
+    });
+
+    // Remove from DLQ
+    await job.remove();
+
+    return res.json({ success: true, message: `Job ${jobId} retried successfully and pushed back to active pdf-generation queue.` });
+  } catch (err) {
+    console.error('Error retrying failed PDF job:', err);
+    return res.status(500).json({ error: err.message });
+  }
+}
+
 module.exports = {
   uploadStudents,
   getHostels,
@@ -1915,7 +1963,9 @@ module.exports = {
   createAllocationRule,
   updateAllocationRule,
   deleteAllocationRule,
-  getHostelAllocationRules
+  getHostelAllocationRules,
+  getFailedPdfJobs,
+  retryFailedPdfJob
 };
 
 
