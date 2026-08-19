@@ -19,6 +19,11 @@ const rateLimit = require('express-rate-limit');
 
 const app = express();
 
+// Fix for "Cannot GET /"
+app.get('/', (req, res) => {
+  res.send('<h1>Hostel Backend API is deployed and running!</h1>');
+});
+
 // 1. CORS Middleware (Must be FIRST before any rate limit or routes so error responses include CORS headers)
 app.use(cors({
   origin: true, // Dynamically mirror request origin for localhost / local IP testing
