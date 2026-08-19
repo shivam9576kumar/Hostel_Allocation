@@ -1,11 +1,22 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Building2, Lock, Unlock, Trash2, Eye, Users, Layers, ShieldCheck, PlusCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../../api/axios';
+import ConfirmDialog from '../Common/ConfirmDialog';
 
 const BlockCard = ({ block, hostelId, onBlockUpdated, onViewFloors, onClick }) => {
   const navigate = useNavigate();
+  const [loading, setLoading] = useState(false);
+  const [confirmDialog, setConfirmDialog] = useState({
+    isOpen: false,
+    type: 'danger',
+    title: '',
+    message: '',
+    details: [],
+    confirmLabel: '',
+    onConfirm: () => {},
+  });
 
   // If used in Allocation Rules Level 2 (HostelDetail.jsx)
   if (onClick || block.ruleCount !== undefined || block.hasRules !== undefined) {
@@ -58,10 +69,6 @@ const BlockCard = ({ block, hostelId, onBlockUpdated, onViewFloors, onClick }) =
   // Block Management View (/admin/blocks)
   const handleViewFloors = () => {
     const hId = hostelId || block.hostel_id;
-    console.log('🔍 hostelId prop:', hostelId);
-    console.log('🔍 block.hostel_id:', block.hostel_id);
-    console.log('🔍 navigating with hId:', hId, 'blockId:', block.block_id);
-
     if (hId && block.block_id) {
       navigate(`/admin/hostels/${hId}/blocks/${block.block_id}/floors`);
     } else if (block.block_id) {
@@ -71,129 +78,169 @@ const BlockCard = ({ block, hostelId, onBlockUpdated, onViewFloors, onClick }) =
     }
   };
 
-  const toggleReservation = async () => {
-    try {
-      await api.put(`/admin/blocks/${block.block_id}/reserve`, {
-        is_reserved: !block.is_reserved
-      });
-      toast.success(`Block ${block.name} ${block.is_reserved ? 'unreserved' : 'reserved'}`);
-      if (onBlockUpdated) onBlockUpdated();
-    } catch (err) {
-      toast.error('Failed to toggle reservation');
-    }
+  const toggleReservation = () => {
+    const isReserved = block.is_reserved;
+    setConfirmDialog({
+      isOpen: true,
+      type: isReserved ? 'info' : 'warning',
+      title: `${isReserved ? 'Unreserve' : 'Reserve'} Block "${block.name}"?`,
+      message: `Are you sure you want to ${isReserved ? 'unreserve' : 'reserve'} "${block.name}"?`,
+      details: isReserved
+        ? ['Block will become active for student allocations', 'Rooms will become available for booking']
+        : ['Block will be hidden from student allocations', 'All rooms in this block will be reserved'],
+      confirmLabel: isReserved ? 'Unreserve Block' : 'Reserve Block',
+      onConfirm: async () => {
+        try {
+          await api.put(`/admin/blocks/${block.block_id}/reserve`, {
+            is_reserved: !isReserved
+          });
+          toast.success(`Block ${block.name} ${isReserved ? 'unreserved' : 'reserved'}`);
+          if (onBlockUpdated) onBlockUpdated();
+        } catch (err) {
+          toast.error('Failed to toggle reservation');
+        } finally {
+          setConfirmDialog(prev => ({ ...prev, isOpen: false }));
+        }
+      },
+    });
   };
 
-  const deleteBlock = async () => {
-    if (!window.confirm(
-      `⚠️ Delete Block ${block.name}?\n\n` +
-      `This will permanently delete:\n` +
-      `• All floors in this block\n` +
-      `• All rooms in this block\n` +
-      `• All student bookings in this block\n\n` +
-      `This action cannot be undone.`
-    )) return;
-
-    try {
-      await api.delete(`/admin/blocks/${block.block_id}`);
-      toast.success(`Block ${block.name} deleted`);
-      if (onBlockUpdated) onBlockUpdated();
-    } catch (err) {
-      toast.error('Failed to delete block');
-    }
+  const deleteBlock = () => {
+    setConfirmDialog({
+      isOpen: true,
+      type: 'danger',
+      title: `Delete Block "${block.name}"?`,
+      message: `Are you sure you want to permanently delete "${block.name}"?`,
+      details: [
+        '⚠️ This action CANNOT be undone',
+        'All floors in this block will be deleted',
+        'All rooms in this block will be deleted',
+        'All student bookings in this block will be deleted',
+        'Students assigned to rooms in this block will be reset to "Pending"',
+      ],
+      confirmLabel: 'Delete Block',
+      onConfirm: async () => {
+        setLoading(true);
+        try {
+          await api.delete(`/admin/blocks/${block.block_id}`);
+          toast.success(`Block "${block.name}" deleted successfully.`);
+          if (onBlockUpdated) onBlockUpdated();
+        } catch (err) {
+          toast.error(err.response?.data?.error || 'Failed to delete block');
+        } finally {
+          setLoading(false);
+          setConfirmDialog(prev => ({ ...prev, isOpen: false }));
+        }
+      },
+    });
   };
 
   const { totalRooms, lockedRooms, reservedRooms, vacantRooms } = block.stats || {};
 
   return (
-    <div className={`bg-white border-2 rounded-2xl p-5 shadow-sm hover:shadow-md transition flex flex-col justify-between ${
-      block.is_reserved ? 'border-rose-200 hover:border-rose-300' : 'border-slate-200 hover:border-blue-300'
-    }`}>
-      <div>
-        <div className="flex items-start justify-between gap-2">
-          <div className="flex-1">
-            <div className="flex items-center gap-2">
-              <Building2 className="w-5 h-5 text-blue-600 shrink-0" />
-              <span className="text-lg font-bold text-slate-800">{block.name}</span>
+    <>
+      <div className={`bg-white border-2 rounded-2xl p-5 shadow-sm hover:shadow-md transition flex flex-col justify-between ${
+        block.is_reserved ? 'border-rose-200 hover:border-rose-300' : 'border-slate-200 hover:border-blue-300'
+      }`}>
+        <div>
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex-1">
+              <div className="flex items-center gap-2">
+                <Building2 className="w-5 h-5 text-blue-600 shrink-0" />
+                <span className="text-lg font-bold text-slate-800">{block.name}</span>
+              </div>
+              <div className="text-xs text-slate-500 font-semibold mt-0.5">
+                {block.hostel_name || 'Hostel'}
+              </div>
             </div>
-            <div className="text-xs text-slate-500 font-semibold mt-0.5">
-              {block.hostel_name || 'Hostel'}
-            </div>
+
+            <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${
+              block.is_reserved
+                ? 'bg-rose-100 text-rose-700 border-rose-200'
+                : 'bg-emerald-100 text-emerald-700 border-emerald-200'
+            }`}>
+              {block.is_reserved ? '🔴 Reserved' : '🟢 Active'}
+            </span>
           </div>
 
-          <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${
-            block.is_reserved
-              ? 'bg-rose-100 text-rose-700 border-rose-200'
-              : 'bg-emerald-100 text-emerald-700 border-emerald-200'
-          }`}>
-            {block.is_reserved ? '🔴 Reserved' : '🟢 Active'}
-          </span>
+          <div className="mt-4 bg-slate-50 rounded-xl p-3 border border-slate-200 space-y-2">
+            <div className="flex items-center gap-1.5">
+              <Users className="w-3.5 h-3.5 text-slate-400" />
+              <span className="text-xs font-bold text-slate-600 uppercase tracking-wider">Room Metrics</span>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2 text-center">
+              <div className="bg-white p-2 rounded-lg border border-slate-100">
+                <div className="text-base font-extrabold text-slate-900">{totalRooms || 0}</div>
+                <div className="text-[10px] font-semibold text-slate-400 uppercase">Total</div>
+              </div>
+              <div className="bg-white p-2 rounded-lg border border-slate-100">
+                <div className="text-base font-extrabold text-blue-600">{lockedRooms || 0}</div>
+                <div className="text-[10px] font-semibold text-slate-400 uppercase">Occupied</div>
+              </div>
+              <div className="bg-white p-2 rounded-lg border border-slate-100">
+                <div className="text-base font-extrabold text-emerald-600">{vacantRooms || 0}</div>
+                <div className="text-[10px] font-semibold text-slate-400 uppercase">Vacant</div>
+              </div>
+            </div>
+
+            {reservedRooms > 0 && (
+              <div className="text-center text-xs text-rose-600 font-bold pt-0.5">
+                ({reservedRooms} room{reservedRooms > 1 ? 's' : ''} reserved)
+              </div>
+            )}
+          </div>
         </div>
 
-        <div className="mt-4 bg-slate-50 rounded-xl p-3 border border-slate-200 space-y-2">
-          <div className="flex items-center gap-1.5">
-            <Users className="w-3.5 h-3.5 text-slate-400" />
-            <span className="text-xs font-bold text-slate-600 uppercase tracking-wider">Room Metrics</span>
-          </div>
+        <div className="mt-4 flex flex-wrap gap-1.5 border-t border-slate-100 pt-3">
+          <button
+            onClick={() => onViewFloors ? onViewFloors(block) : (onClick ? onClick(block.block_id) : null)}
+            className="px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 hover:bg-slate-50 transition flex items-center gap-1 text-slate-700 shadow-sm"
+          >
+            <Eye className="w-3.5 h-3.5 text-blue-600" /> View
+          </button>
 
-          <div className="grid grid-cols-3 gap-2 text-center">
-            <div className="bg-white p-2 rounded-lg border border-slate-100">
-              <div className="text-base font-extrabold text-slate-900">{totalRooms || 0}</div>
-              <div className="text-[10px] font-semibold text-slate-400 uppercase">Total</div>
-            </div>
-            <div className="bg-white p-2 rounded-lg border border-slate-100">
-              <div className="text-base font-extrabold text-blue-600">{lockedRooms || 0}</div>
-              <div className="text-[10px] font-semibold text-slate-400 uppercase">Occupied</div>
-            </div>
-            <div className="bg-white p-2 rounded-lg border border-slate-100">
-              <div className="text-base font-extrabold text-emerald-600">{vacantRooms || 0}</div>
-              <div className="text-[10px] font-semibold text-slate-400 uppercase">Vacant</div>
-            </div>
-          </div>
+          <button
+            onClick={handleViewFloors}
+            className="px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-emerald-200 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 transition flex items-center gap-1 shadow-sm"
+          >
+            <Layers className="w-3.5 h-3.5 text-emerald-600" /> Manage Floors
+          </button>
 
-          {reservedRooms > 0 && (
-            <div className="text-center text-xs text-rose-600 font-bold pt-0.5">
-              ({reservedRooms} room{reservedRooms > 1 ? 's' : ''} reserved)
-            </div>
-          )}
+          <button
+            onClick={toggleReservation}
+            className={`px-2.5 py-1.5 text-xs font-semibold rounded-lg border transition flex items-center gap-1 ${
+              block.is_reserved
+                ? 'border-emerald-200 text-emerald-700 bg-emerald-50 hover:bg-emerald-100'
+                : 'border-amber-200 text-amber-700 bg-amber-50 hover:bg-amber-100'
+            }`}
+          >
+            {block.is_reserved ? <Unlock className="w-3.5 h-3.5 text-emerald-600" /> : <Lock className="w-3.5 h-3.5 text-amber-600" />}
+            {block.is_reserved ? 'Unreserve' : 'Reserve'}
+          </button>
+
+          <button
+            onClick={deleteBlock}
+            disabled={loading}
+            className="p-1.5 text-xs font-semibold rounded-lg border border-rose-200 text-rose-600 hover:bg-rose-50 transition flex items-center gap-1 ml-auto disabled:opacity-50"
+            title="Delete Block"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
         </div>
       </div>
 
-      <div className="mt-4 flex flex-wrap gap-1.5 border-t border-slate-100 pt-3">
-        <button
-          onClick={() => onViewFloors ? onViewFloors(block) : (onClick ? onClick(block.block_id) : null)}
-          className="px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 hover:bg-slate-50 transition flex items-center gap-1 text-slate-700 shadow-sm"
-        >
-          <Eye className="w-3.5 h-3.5 text-blue-600" /> View
-        </button>
-
-        <button
-          onClick={handleViewFloors}
-          className="px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-emerald-200 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 transition flex items-center gap-1 shadow-sm"
-        >
-          <Layers className="w-3.5 h-3.5 text-emerald-600" /> Manage Floors
-        </button>
-
-        <button
-          onClick={toggleReservation}
-          className={`px-2.5 py-1.5 text-xs font-semibold rounded-lg border transition flex items-center gap-1 ${
-            block.is_reserved
-              ? 'border-emerald-200 text-emerald-700 bg-emerald-50 hover:bg-emerald-100'
-              : 'border-amber-200 text-amber-700 bg-amber-50 hover:bg-amber-100'
-          }`}
-        >
-          {block.is_reserved ? <Unlock className="w-3.5 h-3.5 text-emerald-600" /> : <Lock className="w-3.5 h-3.5 text-amber-600" />}
-          {block.is_reserved ? 'Unreserve' : 'Reserve'}
-        </button>
-
-        <button
-          onClick={deleteBlock}
-          className="p-1.5 text-xs font-semibold rounded-lg border border-rose-200 text-rose-600 hover:bg-rose-50 transition flex items-center gap-1 ml-auto"
-          title="Delete Block"
-        >
-          <Trash2 className="w-4 h-4" />
-        </button>
-      </div>
-    </div>
+      <ConfirmDialog
+        isOpen={confirmDialog.isOpen}
+        type={confirmDialog.type}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        details={confirmDialog.details}
+        confirmLabel={confirmDialog.confirmLabel}
+        onConfirm={confirmDialog.onConfirm}
+        onCancel={() => setConfirmDialog(prev => ({ ...prev, isOpen: false }))}
+      />
+    </>
   );
 };
 

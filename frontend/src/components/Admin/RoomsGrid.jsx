@@ -10,6 +10,7 @@ import SearchAndFilterBar from './SearchAndFilterBar';
 import BulkActionsBar from './BulkActionsBar';
 import RoomGridContainer from './RoomGridContainer';
 import RoomPopup from './RoomPopup';
+import ConfirmDialog from '../Common/ConfirmDialog';
 
 const RoomsGrid = () => {
   const { hostelId: paramHostelId, blockId: paramBlockId, floorId: paramFloorId } = useParams();
@@ -29,6 +30,15 @@ const RoomsGrid = () => {
   const [showReserved, setShowReserved] = useState(false);
   const [selectedRoomId, setSelectedRoomId] = useState(null);
   const [selectedRoomNumber, setSelectedRoomNumber] = useState('');
+  const [confirmDialog, setConfirmDialog] = useState({
+    isOpen: false,
+    type: 'danger',
+    title: '',
+    message: '',
+    details: [],
+    confirmLabel: 'Delete Rooms',
+    onConfirm: () => {},
+  });
   const [modalOpen, setModalOpen] = useState(false);
   const [floorInfo, setFloorInfo] = useState(null);
 
@@ -134,22 +144,38 @@ const RoomsGrid = () => {
     }
   };
 
-  const handleBulkDelete = async () => {
+  const handleBulkDelete = () => {
     if (selectedRooms.length === 0) {
       toast.error('Select at least one room.');
       return;
     }
-    if (!window.confirm(`Delete ${selectedRooms.length} rooms? This action cannot be undone.`)) return;
-    try {
-      await api.delete('/admin/rooms/bulk-delete', {
-        data: { roomIds: selectedRooms }
-      });
-      toast.success(`${selectedRooms.length} room(s) deleted`);
-      setSelectedRooms([]);
-      fetchRooms();
-    } catch (err) {
-      toast.error('Failed to delete rooms');
-    }
+    setConfirmDialog({
+      isOpen: true,
+      type: 'danger',
+      title: `Delete ${selectedRooms.length} Selected Rooms?`,
+      message: `Are you sure you want to permanently delete ${selectedRooms.length} selected room(s)?`,
+      details: [
+        '⚠️ This action CANNOT be undone',
+        'Selected rooms will be permanently removed from the system',
+        'All student bookings in these rooms will be deleted',
+        'Students assigned to these rooms will be reset to "Pending"',
+      ],
+      confirmLabel: 'Delete Rooms',
+      onConfirm: async () => {
+        try {
+          await api.delete('/admin/rooms/bulk-delete', {
+            data: { roomIds: selectedRooms }
+          });
+          toast.success(`${selectedRooms.length} room(s) deleted`);
+          setSelectedRooms([]);
+          fetchRooms();
+        } catch (err) {
+          toast.error('Failed to delete rooms');
+        } finally {
+          setConfirmDialog(prev => ({ ...prev, isOpen: false }));
+        }
+      },
+    });
   };
 
   const goBack = () => {
@@ -257,6 +283,17 @@ const RoomsGrid = () => {
           onClose={() => setModalOpen(false)}
         />
       )}
+
+      <ConfirmDialog
+        isOpen={confirmDialog.isOpen}
+        type={confirmDialog.type}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        details={confirmDialog.details}
+        confirmLabel={confirmDialog.confirmLabel}
+        onConfirm={confirmDialog.onConfirm}
+        onCancel={() => setConfirmDialog(prev => ({ ...prev, isOpen: false }))}
+      />
     </div>
   );
 };

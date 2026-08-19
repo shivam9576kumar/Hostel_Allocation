@@ -1,5 +1,6 @@
 const xlsx = require('xlsx');
-const { Student } = require('../models');
+const { Student, ProgramCode } = require('../models');
+const { parseRollNumber, generateEmail } = require('./rollNumberParser');
 
 async function parseAndInsertStudents(filePath) {
   const workbook = xlsx.readFile(filePath);
@@ -29,8 +30,8 @@ async function parseAndInsertStudents(filePath) {
     const programme = normalized['programme'] || normalized['program'];
     const yearStr = normalized['year'];
 
-    if (!rollNumber || !fullName || !email || !gender || !programme || !yearStr) {
-      errors.push(`Row ${rowNum}: Missing required fields (RollNumber, FullName, Email, Gender, Programme, Year).`);
+    if (!rollNumber || !fullName || !gender || !programme || !yearStr) {
+      errors.push(`Row ${rowNum}: Missing required fields (RollNumber, FullName, Gender, Programme, Year).`);
       skippedCount++;
       continue;
     }
@@ -43,12 +44,33 @@ async function parseAndInsertStudents(filePath) {
     }
 
     try {
+      let parsed = null;
+      try {
+        parsed = parseRollNumber(rollNumber);
+      } catch (e) {
+        // Fallback if custom format
+      }
+
+      const admissionYear = parsed ? parsed.admissionYear : null;
+      const programCode = parsed ? parsed.programCode : null;
+      const department = parsed ? parsed.department : null;
+
+      let hostelStayEndYear = null;
+      if (admissionYear && programCode) {
+        const pcRecord = await ProgramCode.findOne({ where: { code: programCode } });
+        if (pcRecord) {
+          hostelStayEndYear = admissionYear + pcRecord.hostel_stay;
+        }
+      }
+
+      const finalEmail = email || generateEmail(fullName, rollNumber);
+
       // Check if student already exists by email or roll_number
       const existing = await Student.findOne({
         where: {
           [Student.sequelize.Sequelize.Op.or]: [
             { roll_number: rollNumber },
-            { email: email }
+            { email: finalEmail }
           ]
         }
       });
@@ -61,10 +83,15 @@ async function parseAndInsertStudents(filePath) {
       await Student.create({
         roll_number: rollNumber,
         full_name: fullName,
-        email: email,
+        email: finalEmail,
         gender: gender,
         programme: programme,
         year: year,
+        department: department,
+        admission_year: admissionYear,
+        program_code: programCode,
+        hostel_stay_end_year: hostelStayEndYear,
+        status: 'active',
         booking_status: 'Pending',
         booked_room_id: null
       });

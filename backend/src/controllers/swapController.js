@@ -343,7 +343,11 @@ async function createRequest(req, res) {
     const involvedMovers = [...sourceMovers, ...targetMovers];
     const consents = {};
     involvedMovers.forEach(roll => {
-      consents[roll] = (roll === initiatorRoll); // Initiator auto-consents
+      if (roll === initiatorRoll) {
+        consents[roll] = true; // Initiator auto-consents
+      } else {
+        consents[roll] = null; // null = pending response
+      }
     });
 
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 Hours TTL
@@ -618,7 +622,10 @@ async function cancelRequest(req, res) {
     }
 
     if (studentRoll && swapRequest.initiator_roll !== studentRoll) {
-      return res.status(403).json({ error: 'Only the initiator or an admin can cancel this request.' });
+      const consents = typeof swapRequest.consents === 'string' ? JSON.parse(swapRequest.consents) : (swapRequest.consents || {});
+      if (!(studentRoll in consents)) {
+        return res.status(403).json({ error: 'Only participating moving students or an admin can cancel this request.' });
+      }
     }
 
     await swapRequest.update({ status: 'Cancelled' });

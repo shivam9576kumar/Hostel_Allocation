@@ -1,7 +1,7 @@
 import React from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { Building2, Layers, Grid, DoorClosed, Upload, LogOut, ShieldCheck, ArrowLeftRight, Clock } from 'lucide-react';
+import { Building2, Layers, Grid, DoorClosed, Users, LogOut, ShieldCheck, ArrowLeftRight, Clock } from 'lucide-react';
 
 const AdminLayout = () => {
   const { user, logout } = useAuth();
@@ -29,7 +29,7 @@ const AdminLayout = () => {
     { id: 'floors', label: 'Floors', path: '/admin/floors', icon: Grid },
     { id: 'rooms', label: 'Rooms Grid', path: '/admin/rooms', icon: DoorClosed },
     { id: 'rules', label: 'Allocation Rules', path: '/admin/allocation-rules', icon: ShieldCheck },
-    { id: 'students', label: 'Student Upload', path: '/admin/students', icon: Upload },
+    { id: 'students', label: 'Student Roster', path: '/admin/students', icon: Users },
     { id: 'settings', label: 'Booking Window', path: '/admin/settings', icon: Clock },
     { id: 'swaps', label: 'Room Swap Control', path: '/admin/swaps', icon: ArrowLeftRight }
   ];

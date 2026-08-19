@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import axios from '../../api/axios';
+import ConfirmDialog from '../Common/ConfirmDialog';
 
 const BulkFloorManager = ({ blocks: initialBlocks, onSuccess }) => {
   const [blocks, setBlocks] = useState(initialBlocks || []);
@@ -22,6 +23,15 @@ const BulkFloorManager = ({ blocks: initialBlocks, onSuccess }) => {
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [showReserved, setShowReserved] = useState(false);
+  const [confirmDialog, setConfirmDialog] = useState({
+    isOpen: false,
+    type: 'danger',
+    title: '',
+    message: '',
+    details: [],
+    confirmLabel: 'Delete Floor',
+    onConfirm: () => {},
+  });
 
   // Form state
   const [blockId, setBlockId] = useState('');
@@ -134,15 +144,33 @@ const BulkFloorManager = ({ blocks: initialBlocks, onSuccess }) => {
   };
 
   // Delete floor
-  const deleteFloor = async (floorId) => {
-    if (!window.confirm('Are you sure you want to delete this floor? All rooms in this floor will also be deleted.')) return;
-    try {
-      await axios.delete(`/admin/floors/${floorId}`);
-      await fetchFloors();
-      toast.success('Floor deleted successfully.');
-    } catch (error) {
-      toast.error('Failed to delete floor.');
-    }
+  const deleteFloor = (floorId) => {
+    const targetFloor = floors.find(f => f.floor_id === floorId);
+    const floorNumStr = targetFloor ? `Floor ${targetFloor.floor_number}` : 'this floor';
+    setConfirmDialog({
+      isOpen: true,
+      type: 'danger',
+      title: `Delete ${floorNumStr}?`,
+      message: `Are you sure you want to permanently delete ${floorNumStr}?`,
+      details: [
+        '⚠️ This action CANNOT be undone',
+        'All rooms on this floor will be deleted',
+        'All student bookings in these rooms will be deleted',
+        'Students assigned to these rooms will be reset to "Pending"',
+      ],
+      confirmLabel: 'Delete Floor',
+      onConfirm: async () => {
+        try {
+          await axios.delete(`/admin/floors/${floorId}`);
+          await fetchFloors();
+          toast.success('Floor deleted successfully.');
+        } catch (error) {
+          toast.error('Failed to delete floor.');
+        } finally {
+          setConfirmDialog(prev => ({ ...prev, isOpen: false }));
+        }
+      },
+    });
   };
 
   // Stats
@@ -373,6 +401,17 @@ const BulkFloorManager = ({ blocks: initialBlocks, onSuccess }) => {
           </table>
         </div>
       </div>
+
+      <ConfirmDialog
+        isOpen={confirmDialog.isOpen}
+        type={confirmDialog.type}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        details={confirmDialog.details}
+        confirmLabel={confirmDialog.confirmLabel}
+        onConfirm={confirmDialog.onConfirm}
+        onCancel={() => setConfirmDialog(prev => ({ ...prev, isOpen: false }))}
+      />
     </div>
   );
 };

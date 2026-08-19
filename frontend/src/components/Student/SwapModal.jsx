@@ -1,10 +1,19 @@
+// frontend/src/components/Student/SwapModal.jsx
+
 import React, { useState, useEffect } from 'react';
-import { X, ArrowLeftRight, Users, User, UserCheck, AlertCircle, CheckCircle2, Loader2, Info } from 'lucide-react';
+import { X, ArrowLeftRight, AlertCircle, CheckCircle2, Loader2 } from 'lucide-react';
 import { getEligibleRooms, createSwapRequest } from '../../api/swap';
+
+import SwapStepTargetRoom from './SwapStepTargetRoom';
+import SwapStepType from './SwapStepType';
+import SwapStepMovers from './SwapStepMovers';
+import SwapStepSummary from './SwapStepSummary';
+import SwapConfirmation from './SwapConfirmation';
 
 const SwapModal = ({ isOpen, onClose, onSuccess, student }) => {
   const currentUserRoll = student?.roll_number;
 
+  const [currentStep, setCurrentStep] = useState(1);
   const [eligibleRooms, setEligibleRooms] = useState([]);
   const [sourceRoom, setSourceRoom] = useState(null);
   const [targetRoomId, setTargetRoomId] = useState('');
@@ -18,7 +27,8 @@ const SwapModal = ({ isOpen, onClose, onSuccess, student }) => {
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(false);
   const [error, setError] = useState('');
-  const [message, setMessage] = useState('');
+  const [confirmationOpen, setConfirmationOpen] = useState(false);
+  const [createdRequestData, setCreatedRequestData] = useState(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -29,13 +39,13 @@ const SwapModal = ({ isOpen, onClose, onSuccess, student }) => {
   }, [isOpen]);
 
   const resetForm = () => {
+    setCurrentStep(1);
     setTargetRoomId('');
     setSwapType('single');
     setSingleTargetMover('');
     setDoubleSourcePartner('');
     setDoubleTargetMovers([]);
     setError('');
-    setMessage('');
   };
 
   const fetchRooms = async () => {
@@ -62,7 +72,7 @@ const SwapModal = ({ isOpen, onClose, onSuccess, student }) => {
   const selectedRoom = eligibleRooms.find(r => String(r.room_id) === String(targetRoomId));
   const roomCapacity = sourceRoom?.capacity || selectedRoom?.capacity || 2;
 
-  // Toggle selection for double swap target movers (must pick exactly 2)
+  // Toggle double swap target movers (select exactly 2)
   const toggleDoubleTargetMover = (roll) => {
     if (doubleTargetMovers.includes(roll)) {
       setDoubleTargetMovers(doubleTargetMovers.filter(r => r !== roll));
@@ -74,11 +84,6 @@ const SwapModal = ({ isOpen, onClose, onSuccess, student }) => {
       }
     }
   };
-
-  // Compile source roommates (excluding initiator)
-  const sourceRoommates = (sourceRoom?.occupants || []).filter(
-    s => s.roll_number !== currentUserRoll
-  );
 
   // Compile summary data
   const getSwapSummary = () => {
@@ -128,10 +133,36 @@ const SwapModal = ({ isOpen, onClose, onSuccess, student }) => {
 
   const summary = getSwapSummary();
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const handleNextStep = () => {
     setError('');
-    setMessage('');
+    if (currentStep === 1) {
+      if (!targetRoomId) {
+        setError('Please select a target room.');
+        return;
+      }
+      setCurrentStep(2);
+    } else if (currentStep === 2) {
+      if (swapType === 'full') {
+        setCurrentStep(4); // Skip mover selection for Full swap
+      } else {
+        setCurrentStep(3);
+      }
+    } else if (currentStep === 3) {
+      setCurrentStep(4);
+    }
+  };
+
+  const handleBackStep = () => {
+    setError('');
+    if (currentStep === 4 && swapType === 'full') {
+      setCurrentStep(2);
+    } else {
+      setCurrentStep(prev => Math.max(1, prev - 1));
+    }
+  };
+
+  const handleSubmit = async () => {
+    setError('');
 
     if (!targetRoomId || !selectedRoom) {
       setError('Please select an eligible target room for swap.');
@@ -175,11 +206,9 @@ const SwapModal = ({ isOpen, onClose, onSuccess, student }) => {
         }
       });
 
-      setMessage(res.data.message || 'Swap request created successfully!');
-      setTimeout(() => {
-        if (onSuccess) onSuccess();
-        onClose();
-      }, 1800);
+      setCreatedRequestData(res.data.swapRequest);
+      setConfirmationOpen(true);
+      if (onSuccess) onSuccess();
     } catch (err) {
       console.error(err);
       setError(err.response?.data?.error || 'Failed to initiate room swap request.');
@@ -191,328 +220,155 @@ const SwapModal = ({ isOpen, onClose, onSuccess, student }) => {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
-      <div className="bg-white rounded-3xl max-w-xl w-full p-6 md:p-8 shadow-2xl border border-slate-100 relative animate-in fade-in zoom-in-95 duration-200 my-8">
-        <button
-          onClick={onClose}
-          className="absolute top-5 right-5 p-2 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition"
-        >
-          <X className="w-5 h-5" />
-        </button>
+    <>
+      <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+        <div className="bg-white rounded-3xl max-w-xl w-full p-6 md:p-8 shadow-2xl border border-slate-100 relative animate-in fade-in zoom-in-95 duration-200 my-8 space-y-5">
+          <button
+            onClick={onClose}
+            className="absolute top-5 right-5 p-2 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition"
+          >
+            <X className="w-5 h-5" />
+          </button>
 
-        {/* Header */}
-        <div className="flex items-center gap-3 mb-4">
-          <div className="p-3 bg-amber-100 rounded-2xl text-amber-700">
-            <ArrowLeftRight className="w-6 h-6" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h3 className="text-xl font-bold text-slate-900">Initiate Room Swap</h3>
-              <span className="px-2.5 py-0.5 bg-slate-100 text-slate-700 text-xs font-bold rounded-full border border-slate-200">
-                {roomCapacity}-Seater Rooms
-              </span>
+          {/* Modal Header */}
+          <div className="flex items-center gap-3">
+            <div className="p-3 bg-amber-100 rounded-2xl text-amber-700">
+              <ArrowLeftRight className="w-6 h-6" />
             </div>
-            <p className="text-xs text-slate-500">
-              Your Room: {sourceRoom?.room_number || student?.BookedRoom?.room_number || 'Your Room'} ({sourceRoom?.occupants?.length || roomCapacity}/{roomCapacity} occupants)
-            </p>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-xl font-bold text-slate-900">Initiate Room Swap</h3>
+                <span className="px-2.5 py-0.5 bg-slate-100 text-slate-700 text-xs font-bold rounded-full border border-slate-200">
+                  {roomCapacity}-Seater Rooms
+                </span>
+              </div>
+              <p className="text-xs text-slate-500">
+                Your Room: {sourceRoom?.room_number || student?.BookedRoom?.room_number || 'Your Room'} ({sourceRoom?.occupants?.length || roomCapacity}/{roomCapacity} occupants)
+              </p>
+            </div>
           </div>
+
+          {/* Step Indicator */}
+          <div className="flex items-center justify-between border-y border-slate-100 py-3 text-xs font-bold">
+            <div className={`flex items-center gap-1.5 ${currentStep >= 1 ? 'text-amber-600' : 'text-slate-400'}`}>
+              <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] ${currentStep >= 1 ? 'bg-amber-500 text-slate-950 font-extrabold' : 'bg-slate-200 text-slate-500'}`}>1</span>
+              <span>Target Room</span>
+            </div>
+            <span className="text-slate-300">&rarr;</span>
+            <div className={`flex items-center gap-1.5 ${currentStep >= 2 ? 'text-amber-600' : 'text-slate-400'}`}>
+              <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] ${currentStep >= 2 ? 'bg-amber-500 text-slate-950 font-extrabold' : 'bg-slate-200 text-slate-500'}`}>2</span>
+              <span>Swap Type</span>
+            </div>
+            {swapType !== 'full' && (
+              <>
+                <span className="text-slate-300">&rarr;</span>
+                <div className={`flex items-center gap-1.5 ${currentStep >= 3 ? 'text-amber-600' : 'text-slate-400'}`}>
+                  <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] ${currentStep >= 3 ? 'bg-amber-500 text-slate-950 font-extrabold' : 'bg-slate-200 text-slate-500'}`}>3</span>
+                  <span>Movers</span>
+                </div>
+              </>
+            )}
+            <span className="text-slate-300">&rarr;</span>
+            <div className={`flex items-center gap-1.5 ${currentStep >= 4 ? 'text-amber-600' : 'text-slate-400'}`}>
+              <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] ${currentStep >= 4 ? 'bg-amber-500 text-slate-950 font-extrabold' : 'bg-slate-200 text-slate-500'}`}>4</span>
+              <span>Confirm</span>
+            </div>
+          </div>
+
+          {error && (
+            <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 text-xs font-semibold flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+              <span>{error}</span>
+            </div>
+          )}
+
+          {fetching ? (
+            <div className="py-12 text-center text-slate-500 text-sm flex flex-col items-center gap-2">
+              <Loader2 className="w-6 h-6 animate-spin text-amber-500" />
+              <span>Finding eligible fully occupied rooms in your hostel...</span>
+            </div>
+          ) : eligibleRooms.length === 0 ? (
+            <div className="py-8 text-center text-slate-500 text-sm bg-slate-50 rounded-2xl border border-slate-200 p-6 space-y-2">
+              <p className="font-semibold text-slate-700">No eligible rooms available for swap.</p>
+              <p className="text-xs text-slate-500">
+                Only fully occupied {roomCapacity}-seater rooms in your hostel not currently in active swaps can participate.
+              </p>
+            </div>
+          ) : (
+            <>
+              {currentStep === 1 && (
+                <SwapStepTargetRoom
+                  eligibleRooms={eligibleRooms}
+                  targetRoomId={targetRoomId}
+                  onSelectRoom={(id) => {
+                    setTargetRoomId(id);
+                    setSingleTargetMover('');
+                    setDoubleTargetMovers([]);
+                  }}
+                  onNext={handleNextStep}
+                  sourceRoom={sourceRoom}
+                  roomCapacity={roomCapacity}
+                />
+              )}
+
+              {currentStep === 2 && (
+                <SwapStepType
+                  swapType={swapType}
+                  onSelectType={(type) => setSwapType(type)}
+                  onNext={handleNextStep}
+                  onBack={handleBackStep}
+                  roomCapacity={roomCapacity}
+                />
+              )}
+
+              {currentStep === 3 && (
+                <SwapStepMovers
+                  swapType={swapType}
+                  sourceRoom={sourceRoom}
+                  selectedRoom={selectedRoom}
+                  currentUserRoll={currentUserRoll}
+                  singleTargetMover={singleTargetMover}
+                  onSelectSingleTargetMover={(roll) => setSingleTargetMover(roll)}
+                  doubleSourcePartner={doubleSourcePartner}
+                  onSelectDoubleSourcePartner={(roll) => setDoubleSourcePartner(roll)}
+                  doubleTargetMovers={doubleTargetMovers}
+                  onToggleDoubleTargetMover={toggleDoubleTargetMover}
+                  onNext={handleNextStep}
+                  onBack={handleBackStep}
+                />
+              )}
+
+              {currentStep === 4 && (
+                <SwapStepSummary
+                  summary={summary}
+                  sourceRoom={sourceRoom}
+                  selectedRoom={selectedRoom}
+                  currentUserRoll={currentUserRoll}
+                  swapType={swapType}
+                  loading={loading}
+                  onSubmit={handleSubmit}
+                  onBack={handleBackStep}
+                  onCancel={onClose}
+                />
+              )}
+            </>
+          )}
         </div>
-
-        {error && (
-          <div className="my-4 p-3.5 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 text-xs font-semibold flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
-            <span>{error}</span>
-          </div>
-        )}
-
-        {message && (
-          <div className="my-4 p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 text-xs font-semibold flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
-            <span>{message}</span>
-          </div>
-        )}
-
-        {fetching ? (
-          <div className="py-12 text-center text-slate-500 text-sm flex flex-col items-center gap-2">
-            <Loader2 className="w-6 h-6 animate-spin text-amber-500" />
-            <span>Finding eligible fully occupied rooms in your hostel...</span>
-          </div>
-        ) : eligibleRooms.length === 0 ? (
-          <div className="py-8 text-center text-slate-500 text-sm bg-slate-50 rounded-2xl border border-slate-200 p-6 space-y-2">
-            <p className="font-semibold text-slate-700">No eligible rooms available for swap.</p>
-            <p className="text-xs text-slate-500">
-              Only fully occupied {roomCapacity}-seater rooms in your hostel not currently in active swaps can participate.
-            </p>
-          </div>
-        ) : (
-          <form onSubmit={handleSubmit} className="space-y-5">
-            {/* Step 1: Select Target Room */}
-            <div>
-              <label className="block text-xs font-bold uppercase text-slate-600 mb-1.5">
-                Step 1: Select Target Room ({eligibleRooms.length} Eligible)
-              </label>
-              <select
-                value={targetRoomId}
-                onChange={(e) => {
-                  setTargetRoomId(e.target.value);
-                  setSingleTargetMover('');
-                  setDoubleTargetMovers([]);
-                }}
-                className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm font-semibold text-slate-900 focus:ring-2 focus:ring-amber-500"
-                required
-              >
-                {eligibleRooms.map(r => (
-                  <option key={r.room_id} value={r.room_id}>
-                    Room {r.room_number} ({r.Floor?.Block?.name} - Floor {r.Floor?.floor_number}) | Fully Occupied ({r.current_occupancy}/{r.capacity})
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Step 2: Choose Swap Type */}
-            <div>
-              <label className="block text-xs font-bold uppercase text-slate-600 mb-2">
-                Step 2: Choose Swap Type
-              </label>
-              <div className={`grid gap-2.5 ${roomCapacity === 3 ? 'grid-cols-3' : 'grid-cols-2'}`}>
-                {/* Single Swap (1 <-> 1) */}
-                <label
-                  className={`p-3 border rounded-2xl cursor-pointer transition flex flex-col items-center gap-1 text-center ${
-                    swapType === 'single'
-                      ? 'border-amber-500 bg-amber-50/70 ring-2 ring-amber-500/20'
-                      : 'border-slate-200 bg-slate-50 hover:bg-slate-100'
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="swapType"
-                    value="single"
-                    checked={swapType === 'single'}
-                    onChange={() => setSwapType('single')}
-                    className="sr-only"
-                  />
-                  <User className="w-5 h-5 text-amber-600" />
-                  <span className="text-xs font-bold text-slate-900">Single Swap</span>
-                  <span className="text-[10px] text-slate-500 leading-tight">1 ↔ 1 (2 Consents)</span>
-                </label>
-
-                {/* Double Swap (2 <-> 2) - only for 3-seater */}
-                {roomCapacity === 3 && (
-                  <label
-                    className={`p-3 border rounded-2xl cursor-pointer transition flex flex-col items-center gap-1 text-center ${
-                      swapType === 'double'
-                        ? 'border-amber-500 bg-amber-50/70 ring-2 ring-amber-500/20'
-                        : 'border-slate-200 bg-slate-50 hover:bg-slate-100'
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="swapType"
-                      value="double"
-                      checked={swapType === 'double'}
-                      onChange={() => setSwapType('double')}
-                      className="sr-only"
-                    />
-                    <UserCheck className="w-5 h-5 text-amber-600" />
-                    <span className="text-xs font-bold text-slate-900">Double Swap</span>
-                    <span className="text-[10px] text-slate-500 leading-tight">2 ↔ 2 (4 Consents)</span>
-                  </label>
-                )}
-
-                {/* Full Swap */}
-                <label
-                  className={`p-3 border rounded-2xl cursor-pointer transition flex flex-col items-center gap-1 text-center ${
-                    swapType === 'full'
-                      ? 'border-amber-500 bg-amber-50/70 ring-2 ring-amber-500/20'
-                      : 'border-slate-200 bg-slate-50 hover:bg-slate-100'
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="swapType"
-                    value="full"
-                    checked={swapType === 'full'}
-                    onChange={() => setSwapType('full')}
-                    className="sr-only"
-                  />
-                  <Users className="w-5 h-5 text-amber-600" />
-                  <span className="text-xs font-bold text-slate-900">Full Swap</span>
-                  <span className="text-[10px] text-slate-500 leading-tight">
-                    {roomCapacity === 3 ? '3 ↔ 3 (6 Consents)' : '2 ↔ 2 (4 Consents)'}
-                  </span>
-                </label>
-              </div>
-            </div>
-
-            {/* Step 3: Select Movers based on swap type */}
-            {selectedRoom && (
-              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-3.5">
-                <div className="text-xs font-bold text-slate-800 uppercase flex items-center gap-1.5">
-                  <UserCheck className="w-4 h-4 text-amber-600" />
-                  Step 3: Select Movers
-                </div>
-
-                {/* Single Swap Selection */}
-                {swapType === 'single' && (
-                  <div className="space-y-2">
-                    <p className="text-xs text-slate-600">
-                      You (<span className="font-semibold text-slate-900">{currentUserRoll}</span>) will move to Room {selectedRoom.room_number}. Select the student moving to your room:
-                    </p>
-                    <select
-                      value={singleTargetMover}
-                      onChange={(e) => setSingleTargetMover(e.target.value)}
-                      className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-sm font-semibold text-slate-900 focus:ring-2 focus:ring-amber-500"
-                      required
-                    >
-                      <option value="">-- Choose student from Room {selectedRoom.room_number} --</option>
-                      {(selectedRoom.Students || []).map(s => (
-                        <option key={s.roll_number} value={s.roll_number}>
-                          {s.full_name} ({s.roll_number})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-
-                {/* Double Swap Selection (Capacity 3) */}
-                {swapType === 'double' && (
-                  <div className="space-y-3.5">
-                    {/* Select 1 roommate from source room */}
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">
-                        Select 1 roommate from your room to move with you:
-                      </label>
-                      <select
-                        value={doubleSourcePartner}
-                        onChange={(e) => setDoubleSourcePartner(e.target.value)}
-                        className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-sm font-semibold text-slate-900 focus:ring-2 focus:ring-amber-500"
-                        required
-                      >
-                        <option value="">-- Choose your moving roommate --</option>
-                        {sourceRoommates.map(s => (
-                          <option key={s.roll_number} value={s.roll_number}>
-                            {s.full_name} ({s.roll_number})
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    {/* Select 2 students from target room */}
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                        Select 2 students from Room {selectedRoom.room_number} ({doubleTargetMovers.length}/2 selected):
-                      </label>
-                      <div className="space-y-1.5">
-                        {(selectedRoom.Students || []).map(s => {
-                          const isSelected = doubleTargetMovers.includes(s.roll_number);
-                          return (
-                            <div
-                              key={s.roll_number}
-                              onClick={() => toggleDoubleTargetMover(s.roll_number)}
-                              className={`p-2.5 rounded-xl border text-xs flex items-center justify-between cursor-pointer transition ${
-                                isSelected
-                                  ? 'bg-amber-100/70 border-amber-400 font-bold text-amber-900'
-                                  : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
-                              }`}
-                            >
-                              <span>{s.full_name} ({s.roll_number})</span>
-                              <input
-                                type="checkbox"
-                                checked={isSelected}
-                                onChange={() => {}}
-                                className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 pointer-events-none"
-                              />
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Full Swap Notice */}
-                {swapType === 'full' && (
-                  <div className="text-xs text-slate-600 space-y-1 bg-white p-3 rounded-xl border border-slate-200">
-                    <p className="font-semibold text-slate-800">
-                      All {roomCapacity} occupants in both rooms will exchange rooms.
-                    </p>
-                    <p className="text-slate-500">
-                      No selection needed. All {roomCapacity * 2} students will be required to give consent.
-                    </p>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Step 4: Summary Card */}
-            {summary && (
-              <div className="bg-amber-50/60 p-4 rounded-2xl border border-amber-200/80 space-y-2 text-xs">
-                <div className="font-extrabold text-amber-900 flex items-center gap-1.5 text-xs">
-                  <Info className="w-4 h-4 text-amber-700 shrink-0" />
-                  Swap Summary & Impact
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-[11px] text-slate-700">
-                  <div className="bg-white/80 p-2.5 rounded-xl border border-amber-200/60">
-                    <span className="font-bold text-slate-900 block mb-0.5">Moving to Room {selectedRoom?.room_number}:</span>
-                    {summary.sourceMoversList.map(s => (
-                      <div key={s.roll_number} className="text-slate-700">
-                        • {s.full_name || s.roll_number} {s.roll_number === currentUserRoll ? '(You)' : ''}
-                      </div>
-                    ))}
-                    {summary.sourceStayersList.length > 0 && (
-                      <div className="text-slate-500 mt-1 italic">
-                        Staying in your room: {summary.sourceStayersList.map(s => s.full_name || s.roll_number).join(', ')}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="bg-white/80 p-2.5 rounded-xl border border-amber-200/60">
-                    <span className="font-bold text-slate-900 block mb-0.5">Moving to Your Room:</span>
-                    {summary.targetMoversList.length > 0 ? (
-                      summary.targetMoversList.map(s => (
-                        <div key={s.roll_number} className="text-slate-700">• {s.full_name || s.roll_number}</div>
-                      ))
-                    ) : (
-                      <span className="text-amber-800 italic">Select mover(s) above</span>
-                    )}
-                    {summary.targetStayersList.length > 0 && (
-                      <div className="text-slate-500 mt-1 italic">
-                        Staying in Room {selectedRoom?.room_number}: {summary.targetStayersList.map(s => s.full_name || s.roll_number).join(', ')}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="pt-1 flex flex-wrap items-center justify-between text-[11px] text-amber-900 font-semibold border-t border-amber-200/60">
-                  <span>Consents required: <strong className="text-slate-900">{summary.consentsRequired} mover(s)</strong> (Stayers are notified automatically)</span>
-                  <span className="text-slate-600">All {summary.totalCertificates} students will receive updated PDFs</span>
-                </div>
-              </div>
-            )}
-
-            {/* Action Buttons */}
-            <div className="pt-2 flex justify-end gap-3">
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-5 py-2.5 rounded-xl border border-slate-300 text-xs font-bold text-slate-700 hover:bg-slate-50 transition"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={loading || (swapType === 'single' && !singleTargetMover) || (swapType === 'double' && (doubleTargetMovers.length !== 2 || !doubleSourcePartner))}
-                className="px-6 py-2.5 bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-slate-950 font-bold rounded-xl text-xs transition shadow-md flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowLeftRight className="w-4 h-4" />}
-                Submit Swap Request
-              </button>
-            </div>
-          </form>
-        )}
       </div>
-    </div>
+
+      <SwapConfirmation
+        isOpen={confirmationOpen}
+        onClose={() => {
+          setConfirmationOpen(false);
+          onClose();
+        }}
+        onViewRequest={() => {
+          setConfirmationOpen(false);
+          onClose();
+        }}
+        createdRequestData={createdRequestData}
+      />
+    </>
   );
 };
 

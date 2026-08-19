@@ -2,7 +2,23 @@ import React, { useState, useEffect } from 'react';
 import { Plus, X, ShieldCheck } from 'lucide-react';
 import toast from 'react-hot-toast';
 
-const AddRuleForm = ({ programmesList, yearsList, onAdd, editingRule, onEdit, onCancelEdit, allocatedRanges = [] }) => {
+const AddRuleForm = ({
+  programmesList = ['B.Tech', 'M.Tech', 'M.Sc', 'PhD', 'B.Des', 'M.Des', 'MBA'],
+  yearsList = [
+    { label: '1st Year', value: '1' },
+    { label: '2nd Year', value: '2' },
+    { label: '3rd Year', value: '3' },
+    { label: '4th Year', value: '4' },
+    { label: '5th Year', value: '5' },
+  ],
+  onAdd,
+  editingRule,
+  onEdit,
+  onCancelEdit,
+  onSubmit,
+  onCancel,
+  allocatedRanges = []
+}) => {
   const [gender, setGender] = useState('Male');
   const [programme, setProgramme] = useState('B.Tech');
   const [allowedYear, setAllowedYear] = useState('2');
@@ -53,17 +69,33 @@ const AddRuleForm = ({ programmesList, yearsList, onAdd, editingRule, onEdit, on
       capacity: parseInt(capacity, 10),
     };
 
+    console.log('📝 Submitting rule form with payload:', payload);
+
     setLoading(true);
     try {
       if (editingRule) {
-        await onEdit(editingRule.rule_id, payload);
+        const handleEditFn = onEdit || onSubmit;
+        if (typeof handleEditFn === 'function') {
+          await handleEditFn(editingRule.rule_id, payload);
+        } else {
+          toast.error('Edit handler is not configured');
+        }
       } else {
-        await onAdd(payload);
+        const handleAddFn = onAdd || onSubmit;
+        if (typeof handleAddFn === 'function') {
+          await handleAddFn(payload);
+        } else {
+          toast.error('Add rule handler is not configured');
+        }
       }
+    } catch (err) {
+      console.error('Error submitting allocation rule form:', err);
     } finally {
       setLoading(false);
     }
   };
+
+  const handleCancelClick = onCancelEdit || onCancel;
 
   return (
     <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4">
@@ -72,10 +104,10 @@ const AddRuleForm = ({ programmesList, yearsList, onAdd, editingRule, onEdit, on
           <ShieldCheck className="w-4 h-4 text-blue-600" />
           {editingRule ? `Edit Rule #${editingRule.rule_id}` : '➕ ADD NEW RULE'}
         </h3>
-        {editingRule && (
+        {editingRule && handleCancelClick && (
           <button
             type="button"
-            onClick={onCancelEdit}
+            onClick={handleCancelClick}
             className="p-1 hover:bg-slate-100 rounded-lg transition text-slate-400 hover:text-slate-700"
           >
             <X className="w-4 h-4" />
@@ -111,7 +143,7 @@ const AddRuleForm = ({ programmesList, yearsList, onAdd, editingRule, onEdit, on
           </select>
         </div>
 
-        {/* Year (NO ALL YEARS) */}
+        {/* Year */}
         <div className="flex items-center gap-2">
           <label className="text-xs font-bold text-slate-500">Year:</label>
           <select

@@ -1,20 +1,31 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Layers, RefreshCw, Edit2, Trash2 } from 'lucide-react';
+import { ShieldCheck, Plus, Trash2, ArrowLeft, Layers, Edit, Check, AlertCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../../api/axios';
 import AddRuleForm from './AddRuleForm';
+import ConfirmDialog from '../Common/ConfirmDialog';
 
 const BlockRules = () => {
   const { hostelId, blockId } = useParams();
   const navigate = useNavigate();
 
-  const [rules, setRules] = useState([]);
-  const [block, setBlock] = useState(null);
   const [hostel, setHostel] = useState(null);
+  const [block, setBlock] = useState(null);
   const [floors, setFloors] = useState([]);
+  const [rules, setRules] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [showAddForm, setShowAddForm] = useState(false);
   const [editingRule, setEditingRule] = useState(null);
+  const [confirmDialog, setConfirmDialog] = useState({
+    isOpen: false,
+    type: 'danger',
+    title: '',
+    message: '',
+    details: [],
+    confirmLabel: 'Delete Rule',
+    onConfirm: () => {},
+  });
 
   useEffect(() => {
     fetchData();
@@ -23,37 +34,36 @@ const BlockRules = () => {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [hostelRes, blockRes, rulesRes, floorsRes] = await Promise.all([
+      const [hRes, bRes, fRes, rRes] = await Promise.all([
         api.get(`/admin/hostels/${hostelId}`),
         api.get(`/admin/blocks/${blockId}`),
-        api.get(`/admin/allocation-rules?blockId=${blockId}`),
-        api.get(`/admin/floors?blockId=${blockId}`)
+        api.get(`/admin/floors?blockId=${blockId}`),
+        api.get(`/admin/allocation-rules?block_id=${blockId}`),
       ]);
-
-      setHostel(hostelRes.data.hostel);
-      setBlock(blockRes.data.block);
-      const fetchedRules = rulesRes.data.rules || [];
-      setRules(fetchedRules);
-      setFloors(floorsRes.data.floors || []);
+      setHostel(hRes.data.hostel || hRes.data);
+      setBlock(bRes.data.block || bRes.data);
+      setFloors(fRes.data.floors || fRes.data || []);
+      setRules(rRes.data.rules || rRes.data || []);
     } catch (err) {
-      toast.error('Failed to fetch allocation rules');
+      console.error(err);
+      toast.error('Failed to load block allocation rules data');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleAddRule = async (data) => {
+  const handleCreateRule = async (data) => {
     try {
       await api.post('/admin/allocation-rules', {
-        hostel_id: parseInt(hostelId, 10),
         ...data,
-        block_id: parseInt(blockId, 10),
+        hostel_id: hostelId,
+        block_id: blockId,
       });
-      toast.success('Rule created & floors reserved successfully!');
-      setEditingRule(null);
+      toast.success('Allocation rule created & floors reserved!');
+      setShowAddForm(false);
       fetchData();
     } catch (err) {
-      toast.error(err.response?.data?.error || 'Failed to add rule');
+      toast.error(err.response?.data?.error || 'Failed to create rule');
     }
   };
 
@@ -68,15 +78,29 @@ const BlockRules = () => {
     }
   };
 
-  const handleDeleteRule = async (ruleId) => {
-    if (!window.confirm('Delete this rule? This will free the allocated floors.')) return;
-    try {
-      await api.delete(`/admin/allocation-rules/${ruleId}`);
-      toast.success('Rule deleted & allocated floors freed.');
-      fetchData();
-    } catch (err) {
-      toast.error('Failed to delete rule');
-    }
+  const handleDeleteRule = (ruleId) => {
+    setConfirmDialog({
+      isOpen: true,
+      type: 'danger',
+      title: 'Delete Allocation Rule?',
+      message: 'Are you sure you want to delete this allocation rule?',
+      details: [
+        'The rule restriction will be removed',
+        'Allocated floors associated with this rule will be freed',
+      ],
+      confirmLabel: 'Delete Rule',
+      onConfirm: async () => {
+        try {
+          await api.delete(`/admin/allocation-rules/${ruleId}`);
+          toast.success('Rule deleted & allocated floors freed.');
+          fetchData();
+        } catch (err) {
+          toast.error('Failed to delete rule');
+        } finally {
+          setConfirmDialog(prev => ({ ...prev, isOpen: false }));
+        }
+      },
+    });
   };
 
   const goBack = () => {
@@ -110,93 +134,104 @@ const BlockRules = () => {
         <div>
           <button
             onClick={goBack}
-            className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition flex items-center gap-1 mb-2"
+            className="text-xs font-semibold text-blue-600 hover:text-blue-800 flex items-center gap-1 mb-2 transition"
           >
-            <ArrowLeft className="w-4 h-4" /> Back to Blocks
+            <ArrowLeft className="w-3.5 h-3.5" /> Back to {hostel?.name || 'Hostel'} Blocks
           </button>
+
           <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
-            <Layers className="w-6 h-6 text-blue-600" />
-            {hostel?.name || 'Hostel'} → {block?.name || 'Block'}
+            <ShieldCheck className="w-6 h-6 text-blue-600" />
+            Allocation Rules: {block?.name || 'Block'}
           </h1>
-          <p className="text-xs text-slate-500 mt-1">
-            Rules: <span className="font-bold text-slate-800">{rules.length}</span> | Available Floors:{' '}
-            <span className="font-bold text-emerald-600">
-              {availableFloors.length > 0 ? availableFloors.join(', ') : 'None'}
-            </span>
+          <p className="text-sm text-slate-500 font-medium">
+            {hostel?.name || 'Hostel'} &bull; Configure floor-by-floor programme and year restrictions for this block.
           </p>
         </div>
+
         <button
-          onClick={fetchData}
-          className="px-4 py-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-bold transition flex items-center gap-2 shadow-sm"
+          onClick={() => { setShowAddForm(!showAddForm); setEditingRule(null); }}
+          className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-2 shadow-sm shrink-0"
         >
-          <RefreshCw className="w-4 h-4" /> Refresh
+          <Plus className="w-4 h-4" /> {showAddForm ? 'Cancel Add' : 'Add Allocation Rule'}
         </button>
       </div>
 
-      {/* Add / Edit Rule Form (Inline) */}
-      <AddRuleForm
-        programmesList={programmesList}
-        yearsList={yearsList}
-        onAdd={handleAddRule}
-        editingRule={editingRule}
-        onEdit={handleEditRule}
-        onCancelEdit={() => setEditingRule(null)}
-      />
-
-      {/* Rules Table */}
+      {/* Main Content */}
       {loading ? (
-        <div className="text-center py-12 text-slate-400 font-medium animate-pulse">Loading rules...</div>
+        <div className="bg-white rounded-2xl p-8 border border-slate-200 text-center text-slate-400 font-semibold animate-pulse">
+          Loading allocation rules...
+        </div>
       ) : (
-        <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
-          <div className="overflow-x-auto">
+        <div className="space-y-6">
+          {/* Add / Edit Form Modal or inline card */}
+          {(showAddForm || editingRule) && (
+            <AddRuleForm
+              block={block}
+              floors={floors}
+              programmesList={programmesList}
+              yearsList={yearsList}
+              availableFloors={availableFloors}
+              editingRule={editingRule}
+              onAdd={handleCreateRule}
+              onEdit={(ruleId, data) => handleEditRule(ruleId || editingRule?.rule_id, data)}
+              onSubmit={editingRule ? (data) => handleEditRule(editingRule.rule_id, data) : handleCreateRule}
+              onCancelEdit={() => { setShowAddForm(false); setEditingRule(null); }}
+              onCancel={() => { setShowAddForm(false); setEditingRule(null); }}
+            />
+          )}
+
+          {/* Rules Table */}
+          <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
             <table className="w-full text-sm">
-              <thead className="bg-slate-50 border-b border-slate-200">
+              <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold text-xs uppercase">
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Rule ID</th>
-                  <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Gender</th>
-                  <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Programme</th>
-                  <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Year</th>
-                  <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Floors</th>
-                  <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Capacity</th>
-                  <th className="px-4 py-3 text-right text-xs font-bold text-slate-500 uppercase tracking-wider">Actions</th>
+                  <th className="px-5 py-3.5 text-left">Floors Range</th>
+                  <th className="px-5 py-3.5 text-left">Target Programme</th>
+                  <th className="px-5 py-3.5 text-left">Target Year</th>
+                  <th className="px-5 py-3.5 text-left">Gender</th>
+                  <th className="px-5 py-3.5 text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
                 {rules.length === 0 ? (
                   <tr>
-                    <td colSpan="7" className="px-4 py-8 text-center text-slate-400 font-medium">
-                      No rules configured for this block. Add a rule using the form above.
+                    <td colSpan="5" className="px-5 py-8 text-center text-slate-400">
+                      No allocation rules defined for this block yet. Click "+ Add Allocation Rule" above to restrict floors to specific cohorts.
                     </td>
                   </tr>
                 ) : (
                   rules.map((rule) => (
-                    <tr key={rule.rule_id} className="hover:bg-slate-50 transition">
-                      <td className="px-4 py-3 text-xs text-slate-400 font-mono">#{rule.rule_id}</td>
-                      <td className="px-4 py-3 font-semibold text-slate-800">{rule.gender || 'Male'}</td>
-                      <td className="px-4 py-3 font-extrabold text-slate-900">{rule.programme}</td>
-                      <td className="px-4 py-3 text-xs font-semibold text-slate-700">
-                        {rule.allowed_year ? `${rule.allowed_year}${getOrdinal(rule.allowed_year)} Year` : '1st Year'}
+                    <tr key={rule.rule_id} className="hover:bg-slate-50/60 transition">
+                      <td className="px-5 py-4 font-bold text-slate-900">
+                        Floors {rule.floor_start} to {rule.floor_end}
                       </td>
-                      <td className="px-4 py-3 font-mono text-xs font-bold text-slate-800">
-                        {rule.floor_start} – {rule.floor_end}
+                      <td className="px-5 py-4">
+                        <span className="px-2.5 py-1 bg-blue-50 text-blue-700 rounded-lg text-xs font-bold">
+                          {rule.programme}
+                        </span>
                       </td>
-                      <td className="px-4 py-3 text-xs font-bold text-slate-800">
-                        {rule.capacity || 2} Seater
+                      <td className="px-5 py-4">
+                        <span className="px-2.5 py-1 bg-slate-100 text-slate-700 rounded-lg text-xs font-bold">
+                          {(rule.allowed_year || rule.year) ? `${rule.allowed_year || rule.year}${getOrdinal(rule.allowed_year || rule.year)} Year` : 'All Years'}
+                        </span>
                       </td>
-                      <td className="px-4 py-3 text-right space-x-1">
+                      <td className="px-5 py-4">
+                        <span className="px-2.5 py-1 bg-purple-50 text-purple-700 rounded-lg text-xs font-bold">
+                          {rule.gender || 'Any'}
+                        </span>
+                      </td>
+                      <td className="px-5 py-4 text-right space-x-2">
                         <button
-                          onClick={() => setEditingRule(rule)}
-                          className="p-1.5 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition"
-                          title="Edit Rule"
+                          onClick={() => { setEditingRule(rule); setShowAddForm(false); }}
+                          className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition"
                         >
-                          <Edit2 className="w-4 h-4" />
+                          Edit
                         </button>
                         <button
                           onClick={() => handleDeleteRule(rule.rule_id)}
-                          className="p-1.5 text-rose-600 bg-rose-50 hover:bg-rose-100 rounded-lg transition"
-                          title="Delete Rule"
+                          className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg text-xs font-bold transition"
                         >
-                          <Trash2 className="w-4 h-4" />
+                          Delete
                         </button>
                       </td>
                     </tr>
@@ -207,6 +242,17 @@ const BlockRules = () => {
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        isOpen={confirmDialog.isOpen}
+        type={confirmDialog.type}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        details={confirmDialog.details}
+        confirmLabel={confirmDialog.confirmLabel}
+        onConfirm={confirmDialog.onConfirm}
+        onCancel={() => setConfirmDialog(prev => ({ ...prev, isOpen: false }))}
+      />
     </div>
   );
 };

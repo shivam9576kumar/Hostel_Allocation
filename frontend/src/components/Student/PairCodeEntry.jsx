@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { pairByCode } from '../../api/student';
-import { KeyRound, ArrowRight, Loader2, AlertCircle } from 'lucide-react';
+import { KeyRound, Loader2, AlertCircle } from 'lucide-react';
 
 const PairCodeEntry = ({ onPairSuccess }) => {
   const [code, setCode] = useState('');
@@ -14,8 +14,8 @@ const PairCodeEntry = ({ onPairSuccess }) => {
   }, []);
 
   const handleChange = (e) => {
-    const val = e.target.value.replace(/[^0-9]/g, '');
-    if (val.length <= 6) {
+    const val = e.target.value.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+    if (val.length <= 8) {
       setCode(val);
       if (error) setError('');
     }
@@ -23,8 +23,8 @@ const PairCodeEntry = ({ onPairSuccess }) => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (code.length !== 6) {
-      setError('Please enter a valid 6-digit pairing code.');
+    if (code.trim().length < 6) {
+      setError('Please enter a valid pairing code.');
       return;
     }
 
@@ -32,7 +32,7 @@ const PairCodeEntry = ({ onPairSuccess }) => {
     setError('');
 
     try {
-      await pairByCode(code);
+      await pairByCode(code.trim());
       setCode('');
       if (onPairSuccess) {
         await onPairSuccess();
@@ -58,7 +58,7 @@ const PairCodeEntry = ({ onPairSuccess }) => {
               <span className="bg-blue-500/20 text-blue-300 text-xs px-2.5 py-0.5 rounded-full border border-blue-400/30 font-mono">Shortcut</span>
             </h2>
             <p className="text-xs text-slate-300 mt-1 leading-relaxed">
-              Have a 6-digit pairing code from your roommate? Enter it here to bypass hostel selection and lock your room instantly!
+              Have a pairing code from your roommate? Enter it here to bypass hostel selection and lock your room instantly!
             </p>
           </div>
         </div>
@@ -68,20 +68,18 @@ const PairCodeEntry = ({ onPairSuccess }) => {
           <div className="relative flex-1 sm:w-56">
             <input
               type="text"
-              inputMode="numeric"
-              pattern="[0-9]*"
-              maxLength={6}
+              maxLength={8}
               value={code}
               onChange={handleChange}
-              placeholder="e.g. 524302"
+              placeholder="e.g. I1IK2TF0"
               disabled={loading}
-              className="w-full bg-slate-950/80 border border-slate-700 rounded-xl px-4 py-3 text-center text-lg font-mono font-bold tracking-widest text-blue-300 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition disabled:opacity-50"
+              className="w-full bg-slate-950/80 border border-slate-700 rounded-xl px-4 py-3 text-center text-lg font-mono font-bold tracking-widest text-blue-300 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition disabled:opacity-50 uppercase"
             />
           </div>
 
           <button
             type="submit"
-            disabled={loading || code.length !== 6}
+            disabled={loading || code.trim().length < 6}
             className="px-6 py-3 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 disabled:text-slate-400 text-white font-semibold rounded-xl text-sm transition flex items-center justify-center gap-2 shadow-sm shrink-0 disabled:cursor-not-allowed"
           >
             {loading ? (

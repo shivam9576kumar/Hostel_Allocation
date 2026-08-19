@@ -1,21 +1,94 @@
 const { parseAndInsertStudents } = require('../utils/csvParser');
-const { Hostel, Block, Floor, Room, Booking, Student, SwapRequest, PDFHistory, AllocationRule, sequelize } = require('../models');
+const { parseRollNumber, generateEmail } = require('../utils/rollNumberParser');
+const { Hostel, Block, Floor, Room, Booking, Student, ProgramCode, SwapRequest, PDFHistory, AllocationRule, sequelize } = require('../models');
 const { Op } = require('sequelize');
 
 // 1. Upload Students Roster
 async function uploadStudents(req, res) {
   try {
-    if (!req.file) {
-      return res.status(400).json({ error: 'No CSV or Excel file uploaded.' });
+    if (req.file) {
+      const filePath = req.file.path;
+      const result = await parseAndInsertStudents(filePath);
+      return res.json({
+        success: true,
+        message: 'Student upload process completed.',
+        result
+      });
     }
 
-    const filePath = req.file.path;
-    const result = await parseAndInsertStudents(filePath);
+    if (req.body.students && Array.isArray(req.body.students)) {
+      const students = req.body.students;
+      const results = {
+        added: 0,
+        skipped: 0,
+        errors: [],
+      };
 
-    return res.json({
-      message: 'Student upload process completed.',
-      result
-    });
+      for (const studentData of students) {
+        try {
+          if (!studentData.roll_number || !studentData.full_name || !studentData.programme || studentData.year === undefined) {
+            results.errors.push({
+              roll_number: studentData.roll_number || 'unknown',
+              error: 'Missing required student fields',
+            });
+            results.skipped++;
+            continue;
+          }
+
+          let admissionYear, programCode, department;
+          try {
+            const parsed = parseRollNumber(studentData.roll_number);
+            admissionYear = parsed.admissionYear;
+            programCode = parsed.programCode;
+            department = parsed.department;
+          } catch (e) {
+            admissionYear = studentData.admission_year || null;
+            programCode = studentData.program_code || null;
+            department = studentData.department || null;
+          }
+
+          const program = programCode ? await ProgramCode.findOne({ where: { code: programCode } }) : null;
+          const hostel_stay_end_year = (admissionYear && program) ? (admissionYear + program.hostel_stay) : null;
+          const email = studentData.email || generateEmail(studentData.full_name, studentData.roll_number);
+
+          const [student, created] = await Student.upsert({
+            roll_number: studentData.roll_number,
+            full_name: studentData.full_name,
+            email,
+            gender: studentData.gender || 'Male',
+            programme: studentData.programme,
+            year: parseInt(studentData.year, 10),
+            admission_year: admissionYear,
+            program_code: programCode,
+            department,
+            hostel_stay_end_year,
+            status: 'active',
+            booking_status: 'Pending',
+            booked_room_id: null,
+          });
+
+          if (created) {
+            results.added++;
+          } else {
+            results.skipped++;
+          }
+        } catch (error) {
+          results.errors.push({
+            roll_number: studentData.roll_number || 'unknown',
+            error: error.message,
+          });
+          results.skipped++;
+        }
+      }
+
+      return res.json({
+        success: true,
+        message: `Upload complete: ${results.added} added, ${results.skipped} skipped.`,
+        results,
+      });
+    }
+
+    return res.status(400).json({ error: 'No CSV file or student array provided.' });
   } catch (err) {
     console.error('Error in uploadStudents:', err);
     return res.status(500).json({ error: `Upload processing failed: ${err.message}` });
@@ -387,7 +460,19 @@ async function deleteHostel(req, res) {
       });
     }
 
-    // 4. Delete the hostel (cascades to blocks → floors → rooms → bookings)
+    // 4. Unlink allocation rules before deleting hostel/blocks
+    const blocks = await Block.findAll({
+      attributes: ['block_id'],
+      where: { hostel_id: id },
+      transaction
+    });
+    const blockIds = blocks.map(b => b.block_id);
+    await AllocationRule.update(
+      { block_id: null, hostel_id: null },
+      { where: { [Op.or]: [{ hostel_id: id }, { block_id: blockIds.length > 0 ? blockIds : [-1] }] }, transaction }
+    );
+
+    // 5. Delete the hostel (cascades to blocks → floors → rooms → bookings)
     await hostel.destroy({ transaction });
 
     await transaction.commit();
@@ -511,7 +596,22 @@ async function clearHostelData(req, res) {
       console.log(`🗑️ Deleted ${deletedFloors} floor(s) in hostel #${id}`);
     }
 
-    // 8. Delete all blocks in this hostel
+    // 8. Unlink allocation_rules before deleting blocks so rules are preserved
+    const blocks = await Block.findAll({
+      attributes: ['block_id'],
+      where: { hostel_id: id },
+      transaction
+    });
+    const blockIds = blocks.map(b => b.block_id);
+    if (blockIds.length > 0) {
+      await AllocationRule.update(
+        { block_id: null },
+        { where: { block_id: blockIds }, transaction }
+      );
+      console.log(`🛡️ Preserved allocation rules for hostel #${id} (set block_id = null)`);
+    }
+
+    // 9. Delete all blocks in this hostel
     const deletedBlocks = await Block.destroy({
       where: { hostel_id: id },
       transaction
@@ -628,7 +728,13 @@ async function deleteBlock(req, res) {
       });
     }
 
-    // 4. Delete the block (cascades to floors → rooms)
+    // 4. Unlink allocation_rules before deleting block so rules are preserved
+    await AllocationRule.update(
+      { block_id: null },
+      { where: { block_id: id }, transaction }
+    );
+
+    // 5. Delete the block (cascades to floors → rooms)
     await block.destroy({ transaction });
 
     await transaction.commit();
@@ -866,13 +972,14 @@ async function toggleRoomReservation(req, res) {
 // 10. List & Search Students
 async function getStudents(req, res) {
   try {
-    const { search, gender, programme, year, status } = req.query;
+    const { search, gender, programme, year, status, department } = req.query;
     const where = {};
 
     if (gender && gender !== 'ALL') where.gender = gender;
     if (programme && programme !== 'ALL') where.programme = programme;
     if (year && year !== 'ALL') where.year = parseInt(year, 10);
     if (status && status !== 'ALL') where.booking_status = status;
+    if (department && department !== 'ALL') where.department = department;
 
     if (search && search.trim()) {
       const searchOp = sequelize.getDialect() === 'postgres' ? Op.iLike : Op.like;
@@ -885,18 +992,40 @@ async function getStudents(req, res) {
 
     const students = await Student.findAll({
       where,
+      attributes: [
+        'roll_number',
+        'full_name',
+        'email',
+        'gender',
+        'programme',
+        'year',
+        'department',
+        'admission_year',
+        'program_code',
+        'hostel_stay_end_year',
+        'status',
+        'booking_status',
+        'booked_room_id',
+        'created_at',
+        'graduated_at'
+      ],
       include: [
         {
           model: Room,
           as: 'BookedRoom',
+          attributes: ['room_id', 'room_number'],
           include: [{ model: Floor, include: [{ model: Block, include: [Hostel] }] }]
+        },
+        {
+          model: ProgramCode,
+          attributes: ['name', 'duration', 'hostel_stay']
         }
       ],
       order: [['roll_number', 'ASC']],
       limit: 1000
     });
 
-    return res.json({ students });
+    return res.json({ success: true, students });
   } catch (err) {
     console.error('Error in getStudents:', err);
     return res.status(500).json({ error: 'Failed to fetch students list.' });
@@ -988,7 +1117,7 @@ async function bulkCreateRooms(req, res) {
 
 async function getStudentCount(req, res) {
   try {
-    const { status, gender, programme, year, search } = req.query;
+    const { status, gender, programme, year, search, department } = req.query;
 
     const where = {};
 
@@ -1003,6 +1132,9 @@ async function getStudentCount(req, res) {
     }
     if (year && year !== 'ALL') {
       where.year = parseInt(year, 10);
+    }
+    if (department && department !== 'ALL') {
+      where.department = department;
     }
     if (search && search.trim()) {
       const searchOp = sequelize.getDialect() === 'postgres' ? Op.iLike : Op.like;
@@ -1050,13 +1182,25 @@ async function getStudentCount(req, res) {
       raw: true
     });
 
+    const departmentBreakdown = await Student.findAll({
+      attributes: [
+        'department',
+        [sequelize.fn('COUNT', sequelize.col('roll_number')), 'count']
+      ],
+      where,
+      group: ['department'],
+      order: [['department', 'ASC']],
+      raw: true
+    });
+
     return res.json({
       success: true,
       data: {
         total: parseInt(totalCount, 10) || 0,
         programmeBreakdown: programmeBreakdown.map(p => ({ ...p, count: parseInt(p.count, 10) || 0 })),
         genderBreakdown: genderBreakdown.map(g => ({ ...g, count: parseInt(g.count, 10) || 0 })),
-        statusBreakdown: statusBreakdown.map(s => ({ ...s, count: parseInt(s.count, 10) || 0 }))
+        statusBreakdown: statusBreakdown.map(s => ({ ...s, count: parseInt(s.count, 10) || 0 })),
+        departmentBreakdown: departmentBreakdown.map(d => ({ ...d, count: parseInt(d.count, 10) || 0 }))
       }
     });
 
@@ -1231,7 +1375,7 @@ async function createAllocationRule(req, res) {
       block_id: targetBlockId,
       floor_start: start,
       floor_end: end,
-      gender: gender || 'Female',
+      gender: gender || (block && block.gender) || 'Male',
       capacity: capacity ? parseInt(capacity, 10) : 2
     });
 
@@ -1782,6 +1926,9 @@ async function getFloorById(req, res) {
 async function getRoomById(req, res) {
   try {
     const { id } = req.params;
+    if (!id || id === 'null' || id === 'undefined' || isNaN(parseInt(id, 10))) {
+      return res.status(400).json({ success: false, error: 'Invalid room ID provided.' });
+    }
     const room = await Room.findByPk(id, {
       include: [
         { model: Floor, include: [{ model: Block, include: [Hostel] }] },
@@ -1801,6 +1948,9 @@ async function getRoomById(req, res) {
 async function getRoomOccupants(req, res) {
   try {
     const { roomId } = req.params;
+    if (!roomId || roomId === 'null' || roomId === 'undefined' || isNaN(parseInt(roomId, 10))) {
+      return res.status(400).json({ success: false, error: 'Invalid room ID provided.' });
+    }
     const occupants = await Student.findAll({
       where: { booked_room_id: parseInt(roomId, 10) },
       attributes: ['roll_number', 'full_name', 'email', 'gender', 'programme', 'year', 'booking_status']
@@ -1925,6 +2075,854 @@ async function retryFailedPdfJob(req, res) {
   }
 }
 
+// 11. Get student profile with full details
+async function getStudentProfile(req, res) {
+  try {
+    const { rollNumber } = req.params;
+    const student = await Student.findByPk(rollNumber, {
+      include: [
+        { model: ProgramCode, attributes: ['name', 'duration', 'hostel_stay'] },
+        {
+          model: Room,
+          as: 'BookedRoom',
+          include: [{ model: Floor, include: [{ model: Block, include: [Hostel] }] }]
+        },
+      ],
+    });
+
+    if (!student) {
+      return res.status(404).json({ error: 'Student not found' });
+    }
+
+    return res.json({ success: true, student });
+  } catch (error) {
+    console.error('Profile error:', error);
+    return res.status(500).json({ error: error.message });
+  }
+}
+
+// 12. Get student history (rooms, roommates, swaps, PDFs)
+async function getStudentHistory(req, res) {
+  try {
+    const { rollNumber } = req.params;
+
+    const student = await Student.findByPk(rollNumber);
+    if (!student) {
+      return res.status(404).json({ error: 'Student not found' });
+    }
+
+    // Get roommates (all students in the same room, excluding self)
+    let roommates = [];
+    if (student.booked_room_id) {
+      roommates = await Student.findAll({
+        where: {
+          booked_room_id: student.booked_room_id,
+          roll_number: { [Op.ne]: rollNumber },
+        },
+        attributes: ['roll_number', 'full_name', 'email', 'programme', 'year', 'gender', 'department'],
+        order: [['roll_number', 'ASC']],
+      });
+    }
+
+    const bookings = await Booking.findAll({
+      where: { student_roll: rollNumber },
+      include: [
+        {
+          model: Room,
+          include: [{ model: Floor, include: [{ model: Block, include: [Hostel] }] }],
+        },
+        {
+          model: Student,
+          as: 'PairedStudent',
+          attributes: ['roll_number', 'full_name'],
+        },
+      ],
+      order: [['booking_date', 'ASC']],
+    });
+
+    const swaps = await SwapRequest.findAll({
+      where: {
+        [Op.or]: [
+          { initiator_roll: rollNumber },
+          { target_student_roll: rollNumber },
+        ],
+      },
+      include: [
+        { model: Student, as: 'Initiator', attributes: ['roll_number', 'full_name'] },
+        { model: Student, as: 'TargetStudent', attributes: ['roll_number', 'full_name'] },
+        { model: Room, as: 'SourceRoom' },
+        { model: Room, as: 'TargetRoom' },
+      ],
+      order: [['created_at', 'DESC']],
+    });
+
+    const pdfs = await PDFHistory.findAll({
+      where: { student_roll: rollNumber },
+      order: [['version', 'DESC']],
+    });
+
+    return res.json({
+      success: true,
+      history: {
+        roommates,
+        bookings,
+        swaps,
+        pdfs,
+      },
+    });
+  } catch (error) {
+    console.error('History error:', error);
+    return res.status(500).json({ error: error.message });
+  }
+}
+
+// 13. Batch remove students by programme + year
+async function batchRemoveStudents(req, res) {
+  try {
+    const programme = req.body?.programme || req.query?.programme;
+    const rawYear = req.body?.year !== undefined ? req.body.year : req.query?.year;
+    if (!programme || rawYear === undefined) {
+      return res.status(400).json({ error: 'programme and year are required' });
+    }
+    const year = parseInt(rawYear, 10);
+
+    const students = await Student.findAll({
+      where: {
+        programme,
+        year,
+        status: 'active',
+      },
+    });
+
+    if (students.length === 0) {
+      return res.status(404).json({ error: 'No students found in this batch' });
+    }
+
+    const roomIds = students.map(s => s.booked_room_id).filter(id => id !== null);
+
+    const deletedCount = await Student.destroy({
+      where: {
+        roll_number: students.map(s => s.roll_number),
+      },
+    });
+
+    if (roomIds.length > 0) {
+      await Room.update(
+        { current_occupancy: 0, status: 'Vacant' },
+        { where: { room_id: roomIds } }
+      );
+      await Booking.destroy({ where: { room_id: roomIds } });
+    }
+
+    return res.json({
+      success: true,
+      message: `Removed ${deletedCount} students from ${programme} Year ${year}`,
+      deletedCount,
+      freedRooms: roomIds.length,
+    });
+  } catch (error) {
+    console.error('Batch removal error:', error);
+    return res.status(500).json({ error: error.message });
+  }
+}
+
+// 14. Archive a student (soft delete)
+async function archiveStudent(req, res) {
+  try {
+    const { rollNumber } = req.params;
+    const student = await Student.findByPk(rollNumber);
+
+    if (!student) {
+      return res.status(404).json({ error: 'Student not found' });
+    }
+
+    if (student.booked_room_id) {
+      await Room.update(
+        { current_occupancy: 0, status: 'Vacant' },
+        { where: { room_id: student.booked_room_id } }
+      );
+      await Booking.destroy({ where: { student_roll: rollNumber } });
+    }
+
+    await student.update({
+      status: 'archived',
+      graduated_at: new Date(),
+      booked_room_id: null,
+      booking_status: 'Pending',
+    });
+
+    return res.json({
+      success: true,
+      message: `Student ${rollNumber} archived successfully.`,
+      student,
+    });
+  } catch (error) {
+    console.error('Archive error:', error);
+    return res.status(500).json({ error: error.message });
+  }
+}
+
+// 15. Export students roster to CSV
+async function exportStudents(req, res) {
+  try {
+    const { search, gender, programme, year, status, department, admissionYear } = req.query;
+    const where = {};
+
+    if (gender && gender !== 'ALL') where.gender = gender;
+    if (programme && programme !== 'ALL') where.programme = programme;
+    if (year && year !== 'ALL') where.year = parseInt(year, 10);
+    if (status && status !== 'ALL') where.booking_status = status;
+    if (department && department !== 'ALL') where.department = department;
+    if (admissionYear && admissionYear !== 'ALL') where.admission_year = parseInt(admissionYear, 10);
+
+    if (search && search.trim()) {
+      const searchOp = sequelize.getDialect() === 'postgres' ? Op.iLike : Op.like;
+      where[Op.or] = [
+        { full_name: { [searchOp]: `%${search.trim()}%` } },
+        { roll_number: { [searchOp]: `%${search.trim()}%` } },
+        { email: { [searchOp]: `%${search.trim()}%` } }
+      ];
+    }
+
+    const students = await Student.findAll({
+      where,
+      include: [
+        { model: Room, as: 'BookedRoom', attributes: ['room_number'] }
+      ],
+      order: [['roll_number', 'ASC']],
+    });
+
+    const headers = ['Roll Number', 'Full Name', 'Email', 'Gender', 'Programme', 'Year', 'Department', 'Admission Year', 'Hostel Stay End Year', 'Status', 'Room Number'];
+    const rows = students.map(s => [
+      `"${s.roll_number || ''}"`,
+      `"${s.full_name || ''}"`,
+      `"${s.email || ''}"`,
+      `"${s.gender || ''}"`,
+      `"${s.programme || ''}"`,
+      s.year || '',
+      `"${s.department || ''}"`,
+      s.admission_year || '',
+      s.hostel_stay_end_year || '',
+      `"${s.status || ''}"`,
+      `"${s.BookedRoom?.room_number || 'Unassigned'}"`
+    ]);
+
+    const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename="students_roster.csv"');
+    return res.status(200).send(csvContent);
+  } catch (err) {
+    console.error('Export students error:', err);
+    return res.status(500).json({ error: 'Failed to export students' });
+  }
+}
+
+// 16. Unarchive a student (restore from soft delete)
+async function unarchiveStudent(req, res) {
+  try {
+    const { rollNumber } = req.params;
+
+    const student = await Student.findByPk(rollNumber);
+    if (!student) {
+      return res.status(404).json({ error: 'Student not found' });
+    }
+
+    if (student.status !== 'archived') {
+      return res.status(400).json({ error: 'Student is not archived' });
+    }
+
+    await student.update({
+      status: 'active',
+      graduated_at: null,
+    });
+
+    return res.json({
+      success: true,
+      message: `Student ${rollNumber} restored successfully.`,
+      student,
+    });
+  } catch (error) {
+    console.error('Unarchive error:', error);
+    return res.status(500).json({ error: error.message });
+  }
+}
+
+// 17. Get available rooms for student assignment
+async function getAvailableRooms(req, res) {
+  try {
+    const { rollNumber } = req.params;
+
+    const student = await Student.findByPk(rollNumber, {
+      include: [{ model: ProgramCode }],
+    });
+    if (!student) {
+      return res.status(404).json({ error: 'Student not found' });
+    }
+
+    // Fetch all hostels matching nested blocks, floors, rooms
+    const hostels = await Hostel.findAll({
+      include: [
+        {
+          model: Block,
+          where: { is_reserved: false },
+          required: true,
+          include: [
+            {
+              model: Floor,
+              where: { is_reserved: false },
+              required: true,
+              include: [
+                {
+                  model: Room,
+                  where: {
+                    is_reserved: false,
+                    status: { [Op.in]: ['Vacant', 'Pending_Pairing'] },
+                  },
+                  required: true,
+                },
+              ],
+            },
+          ],
+        },
+      ],
+      order: [
+        ['name', 'ASC'],
+        [{ model: Block }, 'name', 'ASC'],
+        [{ model: Block }, { model: Floor }, 'floor_number', 'ASC'],
+        [{ model: Block }, { model: Floor }, { model: Room }, 'room_number', 'ASC'],
+      ],
+    });
+
+    // Fetch all allocation rules
+    const rules = await AllocationRule.findAll();
+
+    // Filter hostels, blocks, floors, rooms by allocation rules & capacity
+    const filteredHostels = hostels.map(hostel => {
+      const hostelPlain = hostel.get({ plain: true });
+
+      const eligibleBlocks = hostelPlain.Blocks.map(block => {
+        const blockRules = rules.filter(r => r.hostel_id === hostel.hostel_id && r.block_id === block.block_id);
+
+        const eligibleFloors = block.Floors.map(floor => {
+          // Check floor-level allocation rules
+          if (blockRules.length > 0) {
+            const matchingRule = blockRules.find(r =>
+              r.floor_start <= floor.floor_number &&
+              r.floor_end >= floor.floor_number &&
+              r.programme === student.programme &&
+              (r.allowed_year === null || r.allowed_year === student.year) &&
+              (r.gender === null || r.gender === student.gender)
+            );
+            const conflictingRule = blockRules.find(r =>
+              r.floor_start <= floor.floor_number &&
+              r.floor_end >= floor.floor_number &&
+              (r.programme !== student.programme || (r.allowed_year !== null && r.allowed_year !== student.year) || (r.gender !== null && r.gender !== student.gender))
+            );
+            // If there's a conflicting rule and no matching rule, exclude this floor
+            if (conflictingRule && !matchingRule) {
+              return null;
+            }
+          }
+
+          // Filter available rooms with capacity remaining
+          const availableRooms = floor.Rooms.filter(r => r.current_occupancy < r.capacity);
+          if (availableRooms.length === 0) return null;
+
+          return { ...floor, Rooms: availableRooms };
+        }).filter(Boolean);
+
+        if (eligibleFloors.length === 0) return null;
+        return { ...block, Floors: eligibleFloors };
+      }).filter(Boolean);
+
+      if (eligibleBlocks.length === 0) return null;
+      return { ...hostelPlain, Blocks: eligibleBlocks };
+    }).filter(Boolean);
+
+    return res.json({ success: true, hostels: filteredHostels });
+  } catch (error) {
+    console.error('Error fetching available rooms:', error);
+    return res.status(500).json({ error: error.message });
+  }
+}
+
+// 18. Assign student to a room
+async function assignRoom(req, res) {
+  const transaction = await sequelize.transaction();
+  try {
+    const { rollNumber } = req.params;
+    const { roomId } = req.body;
+
+    if (!roomId) {
+      return res.status(400).json({ error: 'roomId is required' });
+    }
+
+    // 1. Get student
+    const student = await Student.findByPk(rollNumber, { transaction });
+    if (!student) {
+      await transaction.rollback();
+      return res.status(404).json({ error: 'Student not found' });
+    }
+
+    // 2. Check if student already has a room (reassignment handling)
+    if (student.booked_room_id) {
+      const oldRoom = await Room.findByPk(student.booked_room_id, { transaction });
+      if (oldRoom) {
+        oldRoom.current_occupancy = Math.max(0, oldRoom.current_occupancy - 1);
+        if (oldRoom.current_occupancy === 0) {
+          oldRoom.status = 'Vacant';
+        } else {
+          oldRoom.status = 'Pending_Pairing';
+        }
+        await oldRoom.save({ transaction });
+
+        // Reset any remaining students in old room if it was previously locked
+        await Student.update(
+          { booking_status: 'Pending' },
+          { where: { booked_room_id: oldRoom.room_id }, transaction }
+        );
+
+        // Delete old booking
+        await Booking.destroy({
+          where: { student_roll: rollNumber },
+          transaction,
+        });
+      }
+    }
+
+    // 3. Get room
+    const room = await Room.findByPk(roomId, {
+      include: [{ model: Floor, include: [{ model: Block, include: [Hostel] }] }],
+      transaction,
+    });
+    if (!room) {
+      await transaction.rollback();
+      return res.status(404).json({ error: 'Target room not found' });
+    }
+
+    // 4. Check if room is full
+    if (room.current_occupancy >= room.capacity) {
+      await transaction.rollback();
+      return res.status(400).json({ error: 'Room is already full' });
+    }
+
+    // 5. Assign student to room
+    await student.update({
+      booked_room_id: room.room_id,
+      booking_status: 'Pending', // Will become Locked when room is full
+    }, { transaction });
+
+    // 6. Update room occupancy
+    room.current_occupancy += 1;
+    const isFull = room.current_occupancy >= room.capacity;
+    room.status = isFull ? 'Locked' : 'Pending_Pairing';
+    await room.save({ transaction });
+
+    // 7. Create booking record
+    await Booking.create({
+      room_id: room.room_id,
+      student_roll: rollNumber,
+      booking_date: new Date(),
+      is_primary: true,
+      paired_with: null,
+    }, { transaction });
+
+    // 8. If room is full, lock all students in the room
+    if (isFull) {
+      await Student.update(
+        { booking_status: 'Locked' },
+        { where: { booked_room_id: room.room_id }, transaction }
+      );
+    }
+
+    await transaction.commit();
+
+    return res.json({
+      success: true,
+      message: `Student assigned to Room ${room.room_number}`,
+      room: {
+        room_id: room.room_id,
+        room_number: room.room_number,
+        status: room.status,
+        current_occupancy: room.current_occupancy,
+        capacity: room.capacity,
+        isFull,
+      },
+      isFull,
+    });
+  } catch (error) {
+    await transaction.rollback();
+    console.error('Assign room error:', error);
+    return res.status(500).json({ error: error.message });
+  }
+}
+
+// 14. Get eligible students for a room
+async function getEligibleStudentsForRoom(req, res) {
+  try {
+    const { roomId } = req.params;
+
+    const room = await Room.findByPk(roomId, {
+      include: [
+        {
+          model: Floor,
+          include: [
+            {
+              model: Block,
+              include: [Hostel],
+            },
+          ],
+        },
+      ],
+    });
+    if (!room) {
+      return res.status(404).json({ error: 'Room not found' });
+    }
+
+    const hostel = room.Floor.Block.Hostel;
+    const block = room.Floor.Block;
+
+    // Get allocation rules for this block & floor
+    const rules = await AllocationRule.findAll({
+      where: {
+        hostel_id: hostel.hostel_id,
+        block_id: block.block_id,
+        floor_start: { [Op.lte]: room.Floor.floor_number },
+        floor_end: { [Op.gte]: room.Floor.floor_number },
+      },
+    });
+
+    let whereClause = {
+      booking_status: 'Pending',
+      booked_room_id: null,
+      status: 'active',
+    };
+
+    if (rules && rules.length > 0) {
+      const ruleConditions = rules.map(rule => {
+        const cond = { programme: rule.programme };
+        if (rule.gender) cond.gender = rule.gender;
+        if (rule.allowed_year !== null && rule.allowed_year !== undefined) {
+          cond.year = rule.allowed_year;
+        }
+        return cond;
+      });
+      whereClause[Op.or] = ruleConditions;
+    }
+
+    const eligibleStudents = await Student.findAll({
+      where: whereClause,
+      attributes: ['roll_number', 'full_name', 'email', 'gender', 'programme', 'year', 'department'],
+      order: [['full_name', 'ASC']],
+    });
+
+    return res.json({ success: true, eligibleStudents });
+  } catch (error) {
+    console.error('Error fetching eligible students:', error);
+    return res.status(500).json({ error: error.message });
+  }
+}
+
+// 15. Assign student to room (admin override)
+async function assignStudentToRoom(req, res) {
+  const transaction = await sequelize.transaction();
+  try {
+    const { roomId } = req.params;
+    const { rollNumber } = req.body;
+
+    if (!rollNumber) {
+      return res.status(400).json({ error: 'rollNumber is required' });
+    }
+
+    const room = await Room.findByPk(roomId, {
+      include: [
+        {
+          model: Floor,
+          include: [
+            {
+              model: Block,
+              include: [Hostel],
+            },
+          ],
+        },
+      ],
+      transaction,
+    });
+    if (!room) {
+      await transaction.rollback();
+      return res.status(404).json({ error: 'Room not found' });
+    }
+
+    if (room.current_occupancy >= room.capacity) {
+      await transaction.rollback();
+      return res.status(400).json({ error: 'Room is already full' });
+    }
+
+    const student = await Student.findByPk(rollNumber, { transaction });
+    if (!student) {
+      await transaction.rollback();
+      return res.status(404).json({ error: 'Student not found' });
+    }
+
+    if (student.booked_room_id) {
+      await transaction.rollback();
+      return res.status(400).json({ error: 'Student is already assigned to a room' });
+    }
+
+    const hostel = room.Floor.Block.Hostel;
+
+    if (hostel.allowed_gender && hostel.allowed_gender !== student.gender) {
+      await transaction.rollback();
+      return res.status(400).json({ error: `Gender mismatch with hostel (Hostel is for ${hostel.allowed_gender}s)` });
+    }
+
+    // Assign student
+    await student.update({
+      booked_room_id: room.room_id,
+      booking_status: 'Pending',
+    }, { transaction });
+
+    // Create booking record
+    await Booking.create({
+      student_roll: student.roll_number,
+      room_id: room.room_id,
+      booking_date: new Date(),
+      status: 'confirmed',
+    }, { transaction });
+
+    room.current_occupancy += 1;
+    const isFull = room.current_occupancy >= room.capacity;
+    room.status = isFull ? 'Locked' : 'Pending_Pairing';
+    await room.save({ transaction });
+
+    if (isFull) {
+      await Student.update(
+        { booking_status: 'Locked' },
+        { where: { booked_room_id: room.room_id }, transaction }
+      );
+    }
+
+    await transaction.commit();
+
+    return res.json({
+      success: true,
+      message: `Student ${student.full_name} (${rollNumber}) assigned to Room ${room.room_number}`,
+      room: {
+        room_id: room.room_id,
+        room_number: room.room_number,
+        status: room.status,
+        current_occupancy: room.current_occupancy,
+        capacity: room.capacity,
+        isFull,
+      },
+    });
+  } catch (error) {
+    await transaction.rollback();
+    console.error('Assign student error:', error);
+    return res.status(500).json({ error: error.message });
+  }
+}
+
+/**
+ * Search for a student by roll number or email and check eligibility for a room
+ * GET /api/admin/rooms/:roomId/search-student?query=2024CE00534
+ */
+async function searchEligibleStudent(req, res) {
+  try {
+    const { roomId } = req.params;
+    const { query } = req.query;
+
+    if (!query || query.trim().length < 2) {
+      return res.json({ eligible: false, message: 'Please enter at least 2 characters.' });
+    }
+
+    const room = await Room.findByPk(roomId, {
+      include: [
+        {
+          model: Floor,
+          include: [
+            {
+              model: Block,
+              include: [Hostel],
+            },
+          ],
+        },
+      ],
+    });
+    if (!room) {
+      return res.status(404).json({ error: 'Room not found' });
+    }
+
+    // Check if room is full
+    if (room.current_occupancy >= room.capacity) {
+      return res.json({ eligible: false, message: 'Room is already full.' });
+    }
+
+    const searchQuery = query.trim();
+
+    // Find the student by roll number or email
+    const student = await Student.findOne({
+      where: {
+        [Op.or]: [
+          { roll_number: { [Op.iLike]: searchQuery } },
+          { email: { [Op.iLike]: searchQuery } },
+        ],
+      },
+      include: [
+        {
+          model: Room,
+          as: 'BookedRoom',
+          attributes: ['room_number'],
+        },
+      ],
+    });
+
+    if (!student) {
+      return res.json({ eligible: false, message: `No student found matching "${searchQuery}".` });
+    }
+
+    // Check if student is already assigned
+    if (student.booked_room_id) {
+      return res.json({
+        eligible: false,
+        message: `Student ${student.full_name} (${student.roll_number}) is already assigned to Room ${student.BookedRoom?.room_number || student.booked_room_id}.`,
+      });
+    }
+
+    if (student.booking_status !== 'Pending') {
+      return res.json({
+        eligible: false,
+        message: `Student is not available for assignment (status: ${student.booking_status}).`,
+      });
+    }
+
+    if (student.status === 'archived') {
+      return res.json({
+        eligible: false,
+        message: `Student ${student.full_name} is archived. Unarchive them first.`,
+      });
+    }
+
+    // Check eligibility (gender, programme, year, allocation rules)
+    const hostel = room.Floor.Block.Hostel;
+    const block = room.Floor.Block;
+
+    if (hostel.allowed_gender && hostel.allowed_gender !== student.gender) {
+      return res.json({
+        eligible: false,
+        message: `Gender mismatch (${student.full_name} is ${student.gender}, but Hostel "${hostel.name}" is for ${hostel.allowed_gender}s).`,
+      });
+    }
+
+    const rule = await AllocationRule.findOne({
+      where: {
+        hostel_id: hostel.hostel_id,
+        block_id: block.block_id,
+        programme: student.programme,
+        [Op.or]: [
+          { allowed_year: student.year },
+          { allowed_year: null },
+        ],
+        floor_start: { [Op.lte]: room.Floor.floor_number },
+        floor_end: { [Op.gte]: room.Floor.floor_number },
+      },
+    });
+
+    if (!rule) {
+      return res.json({
+        eligible: false,
+        message: `Student ${student.full_name} is not eligible for this room (No allocation rule allows ${student.programme} Year ${student.year} on Floor ${room.Floor.floor_number}).`,
+      });
+    }
+
+    return res.json({
+      eligible: true,
+      student: {
+        roll_number: student.roll_number,
+        full_name: student.full_name,
+        email: student.email,
+        gender: student.gender,
+        programme: student.programme,
+        year: student.year,
+        department: student.department,
+      },
+    });
+  } catch (error) {
+    console.error('Search student error:', error);
+    return res.status(500).json({ error: error.message });
+  }
+}
+
+/**
+ * Delete a student permanently (hard delete)
+ * DELETE /api/admin/students/:rollNumber
+ */
+async function deleteStudent(req, res) {
+  const transaction = await sequelize.transaction();
+  try {
+    const { rollNumber } = req.params;
+
+    // 1. Find the student
+    const student = await Student.findByPk(rollNumber, { transaction });
+    if (!student) {
+      await transaction.rollback();
+      return res.status(404).json({ error: 'Student not found' });
+    }
+
+    // 2. If the student has a room, free it
+    if (student.booked_room_id) {
+      const room = await Room.findByPk(student.booked_room_id, { transaction });
+      if (room) {
+        room.current_occupancy = Math.max(0, room.current_occupancy - 1);
+        if (room.current_occupancy === 0) {
+          room.status = 'Vacant';
+        } else {
+          room.status = 'Pending_Pairing';
+        }
+        await room.save({ transaction });
+      }
+    }
+
+    // 3. Delete bookings
+    await Booking.destroy({
+      where: { student_roll: rollNumber },
+      transaction,
+    });
+
+    // 4. Delete PDF history
+    await PDFHistory.destroy({
+      where: { student_roll: rollNumber },
+      transaction,
+    });
+
+    // 5. Delete swap requests where the student is involved (as initiator or target)
+    await SwapRequest.destroy({
+      where: {
+        [Op.or]: [
+          { initiator_roll: rollNumber },
+          { target_student_roll: rollNumber },
+        ],
+      },
+      transaction,
+    });
+
+    // 6. Finally, delete the student
+    await student.destroy({ transaction });
+
+    await transaction.commit();
+
+    return res.json({
+      success: true,
+      message: `Student ${rollNumber} deleted successfully.`,
+    });
+  } catch (error) {
+    await transaction.rollback();
+    console.error('Delete student error:', error);
+    return res.status(500).json({ error: error.message });
+  }
+}
+
 module.exports = {
   uploadStudents,
   getHostels,
@@ -1959,13 +2957,25 @@ module.exports = {
   releaseOccupants,
   getStudents,
   getStudentCount,
+  getStudentProfile,
+  getStudentHistory,
+  batchRemoveStudents,
+  archiveStudent,
+  unarchiveStudent,
+  deleteStudent,
+  exportStudents,
+  getAvailableRooms,
+  assignRoom,
   getAllocationRules,
   createAllocationRule,
   updateAllocationRule,
   deleteAllocationRule,
   getHostelAllocationRules,
   getFailedPdfJobs,
-  retryFailedPdfJob
+  retryFailedPdfJob,
+  getEligibleStudentsForRoom,
+  assignStudentToRoom,
+  searchEligibleStudent
 };
 
 

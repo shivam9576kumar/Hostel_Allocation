@@ -54,12 +54,12 @@ const RoomStatusCard = ({ room: initialRoom, user }) => {
     checkStatus();
     if (!isPdfReady) {
       setPolling(true);
-      const interval = setInterval(checkStatus, 2000);
+      const interval = setInterval(checkStatus, 8000);
       return () => clearInterval(interval);
     }
   }, [isFullCheck, isPdfReady]);
 
-  // Poll for occupants & room state every 3 seconds
+  // Poll for occupants & room state every 8 seconds
   useEffect(() => {
     if (!roomId) return;
 
@@ -78,7 +78,7 @@ const RoomStatusCard = ({ room: initialRoom, user }) => {
     };
 
     fetchOccupantsData();
-    const interval = setInterval(fetchOccupantsData, 3000);
+    const interval = setInterval(fetchOccupantsData, 8000);
     return () => clearInterval(interval);
   }, [roomId]);
 

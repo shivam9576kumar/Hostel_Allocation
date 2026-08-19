@@ -8,8 +8,8 @@ const PairCodeModal = ({ room, onClose, onSubmitPairCode }) => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!code || code.trim().length !== 6) {
-      setError('Please enter a valid 6-digit numeric pairing code.');
+    if (!code || code.trim().length < 6) {
+      setError('Please enter a valid pairing code.');
       return;
     }
 
@@ -39,7 +39,7 @@ const PairCodeModal = ({ room, onClose, onSubmitPairCode }) => {
 
         <h2 className="text-xl font-bold text-slate-900">Roommate Pairing Verification</h2>
         <p className="text-sm text-slate-600 mt-1">
-          Enter the 6-digit pairing code shared by your primary roommate for <strong className="text-slate-900">Room {room?.room_number}</strong>.
+          Enter the pairing code shared by your roommate for <strong className="text-slate-900">Room {room?.room_number}</strong>.
         </p>
 
         {error && (
@@ -52,17 +52,17 @@ const PairCodeModal = ({ room, onClose, onSubmitPairCode }) => {
         <form onSubmit={handleSubmit} className="mt-6 space-y-5">
           <div>
             <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-2">
-              6-Digit Pairing Code
+              Pairing Code
             </label>
             <div className="relative">
               <Key className="w-5 h-5 text-slate-400 absolute left-4 top-3.5" />
               <input
                 type="text"
-                maxLength={6}
-                placeholder="123456"
+                maxLength={8}
+                placeholder="e.g. I1IK2TF0"
                 value={code}
-                onChange={(e) => setCode(e.target.value.replace(/[^0-9]/g, ''))}
-                className="w-full bg-slate-50 border border-slate-300 rounded-2xl pl-12 pr-4 py-3 text-slate-900 text-xl font-mono tracking-widest focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition"
+                onChange={(e) => setCode(e.target.value.replace(/[^A-Za-z0-9]/g, '').toUpperCase())}
+                className="w-full bg-slate-50 border border-slate-300 rounded-2xl pl-12 pr-4 py-3 text-slate-900 text-xl font-mono tracking-widest focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition uppercase"
               />
             </div>
           </div>
@@ -77,7 +77,7 @@ const PairCodeModal = ({ room, onClose, onSubmitPairCode }) => {
             </button>
             <button
               type="submit"
-              disabled={loading || code.length !== 6}
+              disabled={loading || code.trim().length < 6}
               className="flex-1 py-3 px-4 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-xl shadow-lg shadow-blue-600/30 transition disabled:opacity-50 flex items-center justify-center gap-2"
             >
               <ShieldCheck className="w-5 h-5" />

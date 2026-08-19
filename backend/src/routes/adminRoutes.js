@@ -38,13 +38,25 @@ const {
   releaseOccupants,
   getStudents,
   getStudentCount,
+  getStudentProfile,
+  getStudentHistory,
+  batchRemoveStudents,
+  archiveStudent,
+  unarchiveStudent,
+  deleteStudent,
+  exportStudents,
+  getAvailableRooms,
+  assignRoom,
   getAllocationRules,
   createAllocationRule,
   updateAllocationRule,
   deleteAllocationRule,
   getHostelAllocationRules,
   getFailedPdfJobs,
-  retryFailedPdfJob
+  retryFailedPdfJob,
+  getEligibleStudentsForRoom,
+  assignStudentToRoom,
+  searchEligibleStudent
 } = require('../controllers/adminController');
 
 const verifyAdmin = adminAuth;
@@ -97,6 +109,15 @@ router.put('/settings', settingsController.updateGlobalSettings);
 router.post('/upload-students', upload.single('file'), uploadStudents);
 router.get('/students/count', getStudentCount);
 router.get('/students', getStudents);
+router.get('/students/export', exportStudents);
+router.get('/students/:rollNumber/profile', getStudentProfile);
+router.get('/students/:rollNumber/history', getStudentHistory);
+router.delete('/students/batch', batchRemoveStudents);
+router.delete('/students/:rollNumber', verifyAdmin, deleteStudent);
+router.put('/students/:rollNumber/archive', archiveStudent);
+router.put('/students/:rollNumber/unarchive', unarchiveStudent);
+router.get('/students/:rollNumber/available-rooms', getAvailableRooms);
+router.post('/students/:rollNumber/assign-room', assignRoom);
 
 // Hostel Management
 router.get('/hostels', getHostels);
@@ -149,6 +170,9 @@ router.post('/rooms/bulk', bulkCreateRooms);
 router.delete('/rooms/:id', deleteRoom);
 router.put('/rooms/:id/reserve', toggleRoomReservation);
 router.post('/rooms/:roomId/release', releaseOccupants);
+router.get('/rooms/:roomId/eligible-students', verifyAdmin, getEligibleStudentsForRoom);
+router.post('/rooms/:roomId/assign-student', verifyAdmin, assignStudentToRoom);
+router.get('/rooms/:roomId/search-student', verifyAdmin, searchEligibleStudent);
 
 // PDF Queue Dead Letter Queue (DLQ) Management
 router.get('/pdf-failures', getFailedPdfJobs);

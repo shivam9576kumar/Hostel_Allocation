@@ -66,12 +66,58 @@ const Student = sequelize.define('Student', {
     type: DataTypes.INTEGER,
     allowNull: true
   },
+  department: {
+    type: DataTypes.STRING(10),
+    allowNull: true
+  },
+  admission_year: {
+    type: DataTypes.INTEGER,
+    allowNull: true
+  },
+  program_code: {
+    type: DataTypes.INTEGER,
+    allowNull: true
+  },
+  hostel_stay_end_year: {
+    type: DataTypes.INTEGER,
+    allowNull: true
+  },
+  status: {
+    type: DataTypes.STRING(20),
+    defaultValue: 'active'
+  },
+  graduated_at: {
+    type: DataTypes.DATE,
+    allowNull: true
+  },
   created_at: {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW
   }
 }, {
   tableName: 'students'
+});
+
+const ProgramCode = sequelize.define('ProgramCode', {
+  code: {
+    type: DataTypes.INTEGER,
+    primaryKey: true
+  },
+  name: {
+    type: DataTypes.STRING(50),
+    allowNull: false
+  },
+  duration: {
+    type: DataTypes.INTEGER,
+    allowNull: false
+  },
+  hostel_stay: {
+    type: DataTypes.INTEGER,
+    allowNull: false
+  }
+}, {
+  tableName: 'program_codes',
+  timestamps: false
 });
 
 const Hostel = sequelize.define('Hostel', {
@@ -129,7 +175,7 @@ const AllocationRule = sequelize.define('AllocationRule', {
   },
   hostel_id: {
     type: DataTypes.INTEGER,
-    allowNull: false
+    allowNull: true
   },
   programme: {
     type: DataTypes.STRING(50),
@@ -142,7 +188,7 @@ const AllocationRule = sequelize.define('AllocationRule', {
   },
   block_id: {
     type: DataTypes.INTEGER,
-    allowNull: false
+    allowNull: true
   },
   floor_start: {
     type: DataTypes.INTEGER,
@@ -470,16 +516,20 @@ SwapRequest.belongsTo(Room, {
 
 // PDFHistory Associations
 // AllocationRule Associations
-Hostel.hasMany(AllocationRule, { foreignKey: 'hostel_id', onDelete: 'CASCADE' });
-AllocationRule.belongsTo(Hostel, { foreignKey: 'hostel_id' });
+Hostel.hasMany(AllocationRule, { foreignKey: 'hostel_id', onDelete: 'SET NULL' });
+AllocationRule.belongsTo(Hostel, { foreignKey: 'hostel_id', onDelete: 'SET NULL' });
 
-Block.hasMany(AllocationRule, { foreignKey: 'block_id', onDelete: 'CASCADE' });
-AllocationRule.belongsTo(Block, { foreignKey: 'block_id' });
+Block.hasMany(AllocationRule, { foreignKey: 'block_id', onDelete: 'SET NULL' });
+AllocationRule.belongsTo(Block, { foreignKey: 'block_id', onDelete: 'SET NULL' });
+
+Student.belongsTo(ProgramCode, { foreignKey: 'program_code', targetKey: 'code' });
+ProgramCode.hasMany(Student, { foreignKey: 'program_code', sourceKey: 'code' });
 
 module.exports = {
   sequelize,
   Admin,
   Student,
+  ProgramCode,
   Hostel,
   Block,
   Floor,

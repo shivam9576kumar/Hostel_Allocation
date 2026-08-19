@@ -17,7 +17,7 @@ const BlockRules = lazy(() => import('./components/Admin/BlockRules'));
 const BlocksManagement = lazy(() => import('./components/Admin/BlocksManagement'));
 const FloorsManagement = lazy(() => import('./components/Admin/FloorsManagement'));
 const RoomsGrid = lazy(() => import('./components/Admin/RoomsGrid'));
-const StudentUpload = lazy(() => import('./components/Admin/StudentUpload'));
+const StudentManagement = lazy(() => import('./components/Admin/StudentManagement'));
 const AdminSwapToggle = lazy(() => import('./components/Admin/AdminSwapToggle'));
 const AdminSwapRequests = lazy(() => import('./components/Admin/AdminSwapRequests'));
 const GlobalSettings = lazy(() => import('./components/Admin/GlobalSettings'));
@@ -54,7 +54,7 @@ function App() {
               <Route path="allocation-rules/hostels/:hostelId" element={<HostelDetail />} />
               <Route path="allocation-rules/hostels/:hostelId/blocks/:blockId" element={<BlockRules />} />
 
-              <Route path="students" element={<StudentUpload />} />
+              <Route path="students" element={<StudentManagement />} />
               <Route path="settings" element={<GlobalSettings />} />
               <Route path="swaps" element={
                 <div className="space-y-8">

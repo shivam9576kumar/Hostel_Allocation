@@ -1,39 +1,32 @@
 // backend/src/queues/pdfQueue.js
 
-const { Queue } = require('bullmq');
-const Redis = require('ioredis');
+const Queue = require('bull');
 const env = require('../config/env');
 
 const redisUrl = process.env.REDIS_URL || env.redisUrl;
 
 // ============================================================
-// 1. Connect to Upstash / Local Redis
+// 1. Connect to Upstash / Local Redis using classic Bull (Redis 3.x compatible)
 // ============================================================
-const connection = new Redis(redisUrl, {
-  maxRetriesPerRequest: null,  // BullMQ requires this setting
-  enableReadyCheck: false,
-});
-
-// ============================================================
-// 2. Define the PDF Generation Queue
-// ============================================================
-const pdfQueue = new Queue('pdf-generation', {
-  connection,
-  skipVersionCheck: true,
+const pdfQueue = new Queue('pdf-generation', redisUrl, {
+  redis: {
+    maxRetriesPerRequest: null,
+    enableReadyCheck: false,
+    retryStrategy: (times) => {
+      if (times > 3) return null;
+      return 200;
+    },
+  },
   defaultJobOptions: {
-    attempts: 3,                     // Retry up to 3 times on failure
+    attempts: 3,
     backoff: {
-      type: 'exponential',           // Exponential backoff (2s, 4s, 8s...)
+      type: 'exponential',
       delay: 2000,
     },
-    removeOnComplete: true,          // Remove job from Redis after success
-    removeOnFail: false,             // Keep failed jobs for debugging
-    timeout: 60000,                  // 60 seconds timeout per job
+    removeOnComplete: true,
+    removeOnFail: false,
+    timeout: 60000,
   },
 });
 
-// ============================================================
-// 3. Export the queue and connection
-// ============================================================
 module.exports = pdfQueue;
-module.exports.connection = connection;

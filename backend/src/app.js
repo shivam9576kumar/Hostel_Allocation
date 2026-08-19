@@ -43,21 +43,25 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Bull-Board Queue Monitoring Dashboard Setup
-const { createBullBoard } = require('@bull-board/api');
-const { BullMQAdapter } = require('@bull-board/api/bullMQAdapter');
-const { ExpressAdapter } = require('@bull-board/express');
-const pdfQueue = require('./queues/pdfQueue');
-const failedPdfQueue = require('./queues/failedPdfQueue');
+try {
+  const { createBullBoard } = require('@bull-board/api');
+  const { BullAdapter } = require('@bull-board/api/bullAdapter');
+  const { ExpressAdapter } = require('@bull-board/express');
+  const pdfQueue = require('./queues/pdfQueue');
+  const failedPdfQueue = require('./queues/failedPdfQueue');
 
-const serverAdapter = new ExpressAdapter();
-serverAdapter.setBasePath('/admin/queues');
+  const serverAdapter = new ExpressAdapter();
+  serverAdapter.setBasePath('/admin/queues');
 
-createBullBoard({
-  queues: [new BullMQAdapter(pdfQueue), new BullMQAdapter(failedPdfQueue)],
-  serverAdapter: serverAdapter,
-});
+  createBullBoard({
+    queues: [new BullAdapter(pdfQueue), new BullAdapter(failedPdfQueue)],
+    serverAdapter: serverAdapter,
+  });
 
-app.use('/admin/queues', serverAdapter.getRouter());
+  app.use('/admin/queues', serverAdapter.getRouter());
+} catch (err) {
+  console.warn('[Bull-Board] Skipped dashboard initialization due to Redis version limitation:', err.message);
+}
 
 // Healthcheck Route
 app.get('/health', (req, res) => {
