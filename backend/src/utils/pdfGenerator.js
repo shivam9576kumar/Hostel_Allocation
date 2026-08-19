@@ -143,6 +143,50 @@ async function generateAllocationPDF({
   });
 }
 
+async function generateSinglePDF(student, room) {
+  const result = await generateAllocationPDF({
+    hostelName: room?.Floor?.Block?.Hostel?.name || 'IIT Hostel',
+    blockName: room?.Floor?.Block?.name || 'Block A',
+    floorNumber: room?.Floor?.floor_number || 1,
+    roomNumber: room?.room_number || '101',
+    student1: {
+      full_name: student.name || student.full_name,
+      roll_number: student.roll_number,
+      email: student.email,
+      programme: student.programme,
+      year: student.year
+    },
+    roommates: [],
+    allocationDate: new Date(),
+    isSwap: false,
+    version: 1
+  });
+  return result.filePath;
+}
+
+async function generateUpdatedPDF(student, room) {
+  const result = await generateAllocationPDF({
+    hostelName: room?.Floor?.Block?.Hostel?.name || 'IIT Hostel',
+    blockName: room?.Floor?.Block?.name || 'Block A',
+    floorNumber: room?.Floor?.floor_number || 1,
+    roomNumber: room?.room_number || '101',
+    student1: {
+      full_name: student.name || student.full_name,
+      roll_number: student.roll_number,
+      email: student.email,
+      programme: student.programme,
+      year: student.year
+    },
+    roommates: [],
+    allocationDate: new Date(),
+    isSwap: true,
+    version: 2
+  });
+  return result.filePath;
+}
+
 module.exports = {
-  generateAllocationPDF
+  generateAllocationPDF,
+  generateSinglePDF,
+  generateUpdatedPDF
 };

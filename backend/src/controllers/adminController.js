@@ -108,16 +108,33 @@ async function getHostels(req, res) {
       order: [['hostel_id', 'ASC']]
     });
 
-    const result = hostels.map(h => ({
-      hostel_id: h.hostel_id,
-      name: h.name,
-      blockCount: h.Blocks ? h.Blocks.length : 0
+    const result = await Promise.all(hostels.map(async (h) => {
+      const blockIds = h.Blocks ? h.Blocks.map(b => b.block_id) : [];
+      
+      const rulesCount = await AllocationRule.count({
+        where: {
+          [Op.or]: [
+            { hostel_id: h.hostel_id },
+            { block_id: blockIds.length > 0 ? blockIds : [-1] }
+          ]
+        }
+      });
+
+      return {
+        hostel_id: h.hostel_id,
+        id: h.hostel_id,
+        name: h.name,
+        blockCount: h.Blocks ? h.Blocks.length : 0,
+        blocksCount: h.Blocks ? h.Blocks.length : 0,
+        rulesCount: rulesCount,
+        rules_count: rulesCount
+      };
     }));
 
-    return res.json({ hostels: result });
+    return res.json({ success: true, hostels: result });
   } catch (err) {
     console.error('Error in getHostels:', err);
-    return res.status(500).json({ error: 'Failed to fetch hostels.' });
+    return res.status(500).json({ error: 'Failed to fetch hostels.', details: err.message });
   }
 }
 
@@ -1294,13 +1311,26 @@ async function bulkCreateFloors(req, res) {
 // 12. Allocation Rules Management
 async function getAllocationRules(req, res) {
   try {
-    const { hostelId, programme, year } = req.query;
+    const { hostelId, programme, year, blockId, block_id } = req.query;
     const where = {};
-    if (hostelId && hostelId !== 'ALL') where.hostel_id = parseInt(hostelId, 10);
-    if (programme && programme !== 'ALL') where.programme = programme;
+
+    if (hostelId && hostelId !== 'ALL') {
+      where.hostel_id = parseInt(hostelId, 10);
+    }
+    if (programme && programme !== 'ALL') {
+      where.programme = programme;
+    }
     if (year && year !== 'ALL') {
-      if (year === 'NULL') where.allowed_year = null;
-      else where.allowed_year = parseInt(year, 10);
+      if (year === 'NULL') {
+        where.allowed_year = null;
+      } else {
+        where.allowed_year = parseInt(year, 10);
+      }
+    }
+
+    const targetBlockId = blockId || block_id;
+    if (targetBlockId && targetBlockId !== 'ALL') {
+      where.block_id = parseInt(targetBlockId, 10);
     }
 
     const rules = await AllocationRule.findAll({
@@ -1314,7 +1344,7 @@ async function getAllocationRules(req, res) {
 
     return res.json({ success: true, rules });
   } catch (error) {
-    console.error('Error fetching allocation rules:', error);
+    console.error('❌ Error fetching allocation rules:', error);
     return res.status(500).json({ error: 'Failed to fetch allocation rules', details: error.message });
   }
 }
@@ -1347,6 +1377,33 @@ async function createAllocationRule(req, res) {
 
     const block = await Block.findOne({ where: { block_id: targetBlockId, hostel_id: targetHostelId } });
     if (!block) return res.status(404).json({ error: 'Block does not belong to the selected hostel' });
+
+    // Validate floor range against actual block floors
+    const floors = await Floor.findAll({
+      where: { block_id: targetBlockId },
+      attributes: ['floor_number'],
+      order: [['floor_number', 'ASC']]
+    });
+
+    if (floors.length === 0) {
+      return res.status(400).json({ error: 'This block has no floors. Please add floors first.' });
+    }
+
+    const floorNumbers = floors.map(f => f.floor_number);
+    const minFloor = Math.min(...floorNumbers);
+    const maxFloor = Math.max(...floorNumbers);
+
+    if (start < minFloor) {
+      return res.status(400).json({ 
+        error: `Block floors start at ${minFloor}. Please enter a floor range within ${minFloor} to ${maxFloor}.` 
+      });
+    }
+
+    if (end > maxFloor) {
+      return res.status(400).json({ 
+        error: `Block has only ${floors.length} floor(s) (${minFloor} to ${maxFloor}). Please enter a valid floor range within this block.` 
+      });
+    }
 
     // Floor Reservation Overlap Prevention Check
     const existingBlockRules = await AllocationRule.findAll({
@@ -1424,6 +1481,32 @@ async function updateAllocationRule(req, res) {
 
     if (rule.floor_start > rule.floor_end || rule.floor_start < 0) {
       return res.status(400).json({ error: 'Start floor must be less than or equal to end floor, and >= 0' });
+    }
+
+    const floors = await Floor.findAll({
+      where: { block_id: rule.block_id },
+      attributes: ['floor_number'],
+      order: [['floor_number', 'ASC']]
+    });
+
+    if (floors.length === 0) {
+      return res.status(400).json({ error: 'This block has no floors. Please add floors first.' });
+    }
+
+    const floorNumbers = floors.map(f => f.floor_number);
+    const minFloor = Math.min(...floorNumbers);
+    const maxFloor = Math.max(...floorNumbers);
+
+    if (rule.floor_start < minFloor) {
+      return res.status(400).json({ 
+        error: `Block floors start at ${minFloor}. Please enter a floor range within ${minFloor} to ${maxFloor}.` 
+      });
+    }
+
+    if (rule.floor_end > maxFloor) {
+      return res.status(400).json({ 
+        error: `Block has only ${floors.length} floor(s) (${minFloor} to ${maxFloor}). Please enter a valid floor range within this block.` 
+      });
     }
 
     // Floor Reservation Overlap Check excluding current ruleId
@@ -1507,6 +1590,10 @@ async function releaseOccupants(req, res) {
   const { roomId } = req.params;
   const { studentRolls, clearAll } = req.body;
 
+  if (!roomId || roomId === 'undefined' || roomId === 'null') {
+    return res.status(400).json({ success: false, error: 'Invalid or missing Room ID.' });
+  }
+
   const transaction = await sequelize.transaction();
   try {
     // 1. Find the room by primary key ID or room_number
@@ -1519,11 +1606,13 @@ async function releaseOccupants(req, res) {
       return res.status(404).json({ success: false, error: `Room #${roomId} not found in database.` });
     }
 
+    const targetRoomId = room.room_id;
+
     // 2. Determine which students to release
     if (clearAll === true) {
       // ClearAll takes priority: find any occupants and release them, then reset room to Vacant
       const occupants = await Student.findAll({
-        where: { booked_room_id: roomId },
+        where: { booked_room_id: targetRoomId },
         transaction
       });
       const validRolls = occupants.map(s => s.roll_number);
@@ -1554,8 +1643,8 @@ async function releaseOccupants(req, res) {
             where: {
               status: { [Op.in]: ['Pending', 'Consenting'] },
               [Op.or]: [
-                { source_room_id: roomId },
-                { target_room_id: roomId },
+                { source_room_id: targetRoomId },
+                { target_room_id: targetRoomId },
                 { initiator_roll: validRolls },
                 { target_student_roll: validRolls }
               ]
@@ -1596,7 +1685,7 @@ async function releaseOccupants(req, res) {
     const validStudents = await Student.findAll({
       where: { 
         roll_number: rollsToRelease,
-        booked_room_id: roomId
+        booked_room_id: targetRoomId
       },
       transaction
     });
@@ -1639,8 +1728,8 @@ async function releaseOccupants(req, res) {
         where: {
           status: { [Op.in]: ['Pending', 'Consenting'] },
           [Op.or]: [
-            { source_room_id: roomId },
-            { target_room_id: roomId },
+            { source_room_id: targetRoomId },
+            { target_room_id: targetRoomId },
             { initiator_roll: validRolls },
             { target_student_roll: validRolls }
           ]
@@ -1650,7 +1739,7 @@ async function releaseOccupants(req, res) {
     );
 
     const remainingCount = await Student.count({
-      where: { booked_room_id: roomId },
+      where: { booked_room_id: targetRoomId },
       transaction
     });
 

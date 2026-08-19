@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
-import { Building2, Eye, Layers, Trash2, AlertCircle } from 'lucide-react';
+import { Building2, Eye, Layers, Trash2, AlertCircle, Settings, Pencil } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../../api/axios';
 import ConfirmDialog from '../Common/ConfirmDialog';
 
-const HostelCard = ({ hostel, onClick, onRefresh }) => {
+const HostelCard = ({ hostel, onClick, onRefresh, isRulesManager = false, mode }) => {
   const [loading, setLoading] = useState(false);
+  const rulesCount = hostel?.rulesCount ?? hostel?.rules_count ?? hostel?.rules ?? 0;
+  const isRulesMode = isRulesManager || mode === 'rules';
   const [confirmDialog, setConfirmDialog] = useState({
     isOpen: false,
     type: 'danger',
@@ -82,20 +84,57 @@ const HostelCard = ({ hostel, onClick, onRefresh }) => {
       <div className="bg-white border-2 border-slate-200 rounded-2xl p-6 shadow-sm hover:shadow-md transition">
         <div className="flex items-start justify-between">
           <div>
-            <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-              <Building2 className="w-5 h-5 text-blue-600" />
-              {hostel.name}
-            </h3>
+            <div className="flex items-center gap-2">
+              <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                <Building2 className="w-5 h-5 text-blue-600" />
+                {hostel.name}
+              </h3>
+              {isRulesMode && (
+                <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full border ${
+                  rulesCount === 0 
+                    ? 'bg-amber-50 text-amber-700 border-amber-200' 
+                    : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                }`}>
+                  {rulesCount === 0 ? '⚠️ Needs Setup' : '✅ Configured'}
+                </span>
+              )}
+            </div>
             <p className="text-sm text-slate-500 mt-1">
-              Blocks: <span className="font-semibold text-slate-700">{hostel.blockCount || 0}</span>
+              Blocks: <span className="font-semibold text-slate-700">{hostel.blockCount || hostel.blocksCount || hostel.blocks || 0}</span>
+              {isRulesMode && <> • Rules: <span className="font-semibold text-slate-700">{rulesCount}</span></>}
             </p>
           </div>
-          <span
-            onClick={() => onClick(hostel.hostel_id)}
-            className="text-xs text-blue-600 font-semibold flex items-center gap-1 cursor-pointer hover:underline"
-          >
-            View <Eye className="w-3.5 h-3.5" />
-          </span>
+
+          {/* Context-Aware Action Button */}
+          {isRulesMode ? (
+            <button
+              onClick={() => onClick ? onClick(hostel.hostel_id || hostel.id) : (window.location.href = `/admin/allocation-rules/hostels/${hostel.hostel_id || hostel.id}`)}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-sm ${
+                rulesCount > 0 
+                  ? 'bg-blue-600 hover:bg-blue-700 text-white' 
+                  : 'bg-amber-500 hover:bg-amber-600 text-white'
+              }`}
+              title={rulesCount > 0 ? 'Edit existing allocation rules' : 'Set up new allocation rules'}
+            >
+              {rulesCount > 0 ? (
+                <>
+                  <Pencil className="w-3.5 h-3.5" /> Edit Rules
+                </>
+              ) : (
+                <>
+                  <Settings className="w-3.5 h-3.5" /> Setup Rules
+                </>
+              )}
+            </button>
+          ) : (
+            <button
+              onClick={() => onClick ? onClick(hostel.hostel_id || hostel.id) : (window.location.href = `/admin/hostels/${hostel.hostel_id || hostel.id}`)}
+              className="px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-sm bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-200"
+              title="View hostel overview & details"
+            >
+              <Eye className="w-3.5 h-3.5" /> View
+            </button>
+          )}
         </div>
 
         {/* Action Buttons */}

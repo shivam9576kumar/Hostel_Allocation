@@ -146,6 +146,21 @@ const RoomCard = ({
             <span className="text-xs font-bold text-slate-700">
               {currentOccupancy}/{capacity} Occupied
             </span>
+            {room.capacity === 1 && (
+              <span className="bg-purple-100 text-purple-800 text-xs font-medium px-2.5 py-0.5 rounded-full">
+                Single
+              </span>
+            )}
+            {room.capacity === 2 && (
+              <span className="bg-blue-100 text-blue-800 text-xs font-medium px-2.5 py-0.5 rounded-full">
+                Double
+              </span>
+            )}
+            {room.capacity === 3 && (
+              <span className="bg-green-100 text-green-800 text-xs font-medium px-2.5 py-0.5 rounded-full">
+                Triple
+              </span>
+            )}
           </div>
 
           {/* Status Indicator for Pending */}
@@ -186,7 +201,7 @@ const RoomCard = ({
 
       {manageModalOpen && (
         <ManageRoomModal
-          roomId={room.room_id}
+          roomId={room?.room_id || room?.roomId || room?.id}
           onClose={() => setManageModalOpen(false)}
           onRefresh={onRefresh}
         />

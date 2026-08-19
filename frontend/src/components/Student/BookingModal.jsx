@@ -46,9 +46,13 @@ const BookingModal = ({ room, onClose, onConfirmBooking, bookingResult }) => {
             <div className="w-14 h-14 bg-emerald-100 text-emerald-600 rounded-2xl flex items-center justify-center mb-6">
               <ShieldCheck className="w-8 h-8" />
             </div>
-            <h2 className="text-xl font-bold text-slate-900">Confirm Room Selection</h2>
+            <h2 className="text-xl font-bold text-slate-900">
+              {room?.capacity === 1 ? 'Confirm Single Seater Allocation' : 'Confirm Room Selection'}
+            </h2>
             <p className="text-xs text-slate-500 mt-2">
-              You will receive a 6-digit pairing code. Share it with your roommate(s) within 10 minutes.
+              {room?.capacity === 1 
+                ? 'This is a single occupancy allocation. You will be directly allocated to this room upon confirmation.'
+                : 'You will receive a 6-digit pairing code. Share it with your roommate(s) within 10 minutes.'}
             </p>
 
             <div className="my-6 bg-slate-50 rounded-2xl p-4 border border-slate-200 text-sm space-y-2">
@@ -58,11 +62,15 @@ const BookingModal = ({ room, onClose, onConfirmBooking, bookingResult }) => {
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-500 font-medium">Capacity:</span>
-                <span className="font-semibold text-slate-800">{room?.capacity || 2} Students</span>
+                <span className="font-semibold text-slate-800">
+                  {room?.capacity === 1 ? '1 Student (Single Seater)' : `${room?.capacity || 2} Students`}
+                </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-500 font-medium">Pairing Window:</span>
-                <span className="font-semibold text-amber-600">10 Minutes</span>
+                <span className="font-semibold text-amber-600">
+                  {room?.capacity === 1 ? 'Direct Booking (N/A)' : '10 Minutes'}
+                </span>
               </div>
             </div>
 
@@ -82,7 +90,9 @@ const BookingModal = ({ room, onClose, onConfirmBooking, bookingResult }) => {
                 disabled={loading}
                 className="flex-1 py-3 px-4 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-xl shadow-lg shadow-blue-600/30 transition disabled:opacity-50 text-sm"
               >
-                {loading ? 'Generating Code...' : 'Confirm & Book →'}
+                {loading 
+                  ? (room?.capacity === 1 ? 'Allocating Room...' : 'Generating Code...') 
+                  : (room?.capacity === 1 ? 'Book Single Room →' : 'Confirm & Book →')}
               </button>
             </div>
           </div>

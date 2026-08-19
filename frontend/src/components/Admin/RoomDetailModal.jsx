@@ -123,7 +123,7 @@ const RoomDetailModal = ({ isOpen, onClose, roomId, onRefresh }) => {
       <ManageOccupantsModal
         isOpen={manageModalOpen}
         onClose={() => setManageModalOpen(false)}
-        roomId={roomId}
+        roomId={typeof roomId === 'object' ? (roomId?.room_id || roomId?.roomId || roomId?.id) : (roomId || room?.room_id || room?.id)}
         onRefresh={handleSubModalRefresh}
       />
     </>

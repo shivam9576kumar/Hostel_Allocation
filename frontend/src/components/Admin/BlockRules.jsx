@@ -180,27 +180,37 @@ const BlockRules = () => {
             />
           )}
 
-          {/* Rules Table */}
-          <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold text-xs uppercase">
-                <tr>
-                  <th className="px-5 py-3.5 text-left">Floors Range</th>
-                  <th className="px-5 py-3.5 text-left">Target Programme</th>
-                  <th className="px-5 py-3.5 text-left">Target Year</th>
-                  <th className="px-5 py-3.5 text-left">Gender</th>
-                  <th className="px-5 py-3.5 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
-                {rules.length === 0 ? (
+          {/* Empty State Container (Outside table) */}
+          {rules.length === 0 && !showAddForm && (
+            <div className="flex flex-col items-center justify-center space-y-3 py-10 bg-white rounded-2xl border border-slate-200 shadow-sm">
+              <p className="text-slate-500 font-medium text-sm">
+                No allocation rules defined for this block yet. Click below to restrict floors to specific cohorts.
+              </p>
+              <button
+                onClick={() => { setShowAddForm(true); setEditingRule(null); }}
+                className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition inline-flex items-center gap-2 shadow-md hover:shadow-lg"
+              >
+                <Plus className="w-4 h-4" /> Add Allocation Rule
+              </button>
+            </div>
+          )}
+
+          {/* Rules Table (Only when rules exist) */}
+          {rules.length > 0 && (
+            <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold text-xs uppercase">
                   <tr>
-                    <td colSpan="5" className="px-5 py-8 text-center text-slate-400">
-                      No allocation rules defined for this block yet. Click "+ Add Allocation Rule" above to restrict floors to specific cohorts.
-                    </td>
+                    <th className="px-5 py-3.5 text-left">Floors Range</th>
+                    <th className="px-5 py-3.5 text-left">Target Programme</th>
+                    <th className="px-5 py-3.5 text-left">Target Year</th>
+                    <th className="px-5 py-3.5 text-left">Gender</th>
+                    <th className="px-5 py-3.5 text-left">Capacity</th>
+                    <th className="px-5 py-3.5 text-right">Actions</th>
                   </tr>
-                ) : (
-                  rules.map((rule) => (
+                </thead>
+                <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
+                  {rules.map((rule) => (
                     <tr key={rule.rule_id} className="hover:bg-slate-50/60 transition">
                       <td className="px-5 py-4 font-bold text-slate-900">
                         Floors {rule.floor_start} to {rule.floor_end}
@@ -220,6 +230,11 @@ const BlockRules = () => {
                           {rule.gender || 'Any'}
                         </span>
                       </td>
+                      <td className="px-5 py-4">
+                        <span className="px-2.5 py-1 bg-amber-50 text-amber-700 rounded-lg text-xs font-bold">
+                          {rule.capacity === 1 ? 'Single Seater' : rule.capacity === 2 ? 'Double Seater' : rule.capacity === 3 ? 'Triple Seater' : `${rule.capacity || 2} Seater`}
+                        </span>
+                      </td>
                       <td className="px-5 py-4 text-right space-x-2">
                         <button
                           onClick={() => { setEditingRule(rule); setShowAddForm(false); }}
@@ -235,11 +250,11 @@ const BlockRules = () => {
                         </button>
                       </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 

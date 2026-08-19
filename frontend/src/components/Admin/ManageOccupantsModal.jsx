@@ -4,7 +4,16 @@ import toast from 'react-hot-toast';
 import api from '../../api/axios';
 import ConfirmDialog from '../Common/ConfirmDialog';
 
+const getCleanRoomId = (idProp) => {
+  if (!idProp) return null;
+  if (typeof idProp === 'object') {
+    return idProp.room_id || idProp.roomId || idProp.id || null;
+  }
+  return idProp;
+};
+
 const ManageOccupantsModal = ({ isOpen, onClose, roomId, onRefresh }) => {
+  const cleanRoomId = getCleanRoomId(roomId);
   const [occupants, setOccupants] = useState([]);
   const [selected, setSelected] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -19,14 +28,15 @@ const ManageOccupantsModal = ({ isOpen, onClose, roomId, onRefresh }) => {
   });
 
   useEffect(() => {
-    if (isOpen && roomId) {
+    if (isOpen && cleanRoomId) {
       fetchOccupants();
     }
-  }, [isOpen, roomId]);
+  }, [isOpen, cleanRoomId]);
 
   const fetchOccupants = async () => {
+    if (!cleanRoomId) return;
     try {
-      const res = await api.get(`/admin/rooms/${roomId}/occupants`);
+      const res = await api.get(`/admin/rooms/${cleanRoomId}/occupants`);
       setOccupants(res.data.occupants || []);
     } catch (err) {
       toast.error('Failed to load occupants');
@@ -41,6 +51,8 @@ const ManageOccupantsModal = ({ isOpen, onClose, roomId, onRefresh }) => {
 
   const handleRemoveSelected = () => {
     if (selected.length === 0) return toast.error('Select at least one student.');
+    if (!cleanRoomId) return toast.error('Error: Room ID not found.');
+
     setConfirmDialog({
       isOpen: true,
       type: 'warning',
@@ -55,7 +67,7 @@ const ManageOccupantsModal = ({ isOpen, onClose, roomId, onRefresh }) => {
       onConfirm: async () => {
         setLoading(true);
         try {
-          await api.post(`/admin/rooms/${roomId}/release`, {
+          await api.post(`/admin/rooms/${cleanRoomId}/release`, {
             studentRolls: selected,
             clearAll: false
           });
@@ -74,6 +86,8 @@ const ManageOccupantsModal = ({ isOpen, onClose, roomId, onRefresh }) => {
   };
 
   const handleClearAll = () => {
+    if (!cleanRoomId) return toast.error('Error: Room ID not found.');
+
     setConfirmDialog({
       isOpen: true,
       type: 'danger',
@@ -88,7 +102,7 @@ const ManageOccupantsModal = ({ isOpen, onClose, roomId, onRefresh }) => {
       onConfirm: async () => {
         setLoading(true);
         try {
-          await api.post(`/admin/rooms/${roomId}/release`, {
+          await api.post(`/admin/rooms/${cleanRoomId}/release`, {
             studentRolls: [],
             clearAll: true
           });

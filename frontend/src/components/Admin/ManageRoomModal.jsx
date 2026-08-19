@@ -6,7 +6,16 @@ import toast from 'react-hot-toast';
 import api from '../../api/axios';
 import ConfirmDialog from '../Common/ConfirmDialog';
 
+const getCleanRoomId = (idProp) => {
+  if (!idProp) return null;
+  if (typeof idProp === 'object') {
+    return idProp.room_id || idProp.roomId || idProp.id || null;
+  }
+  return idProp;
+};
+
 const ManageRoomModal = ({ roomId, onClose, onRefresh }) => {
+  const cleanRoomId = getCleanRoomId(roomId);
   const [room, setRoom] = useState(null);
   const [occupants, setOccupants] = useState([]);
   const [selectedStudents, setSelectedStudents] = useState([]);
@@ -27,13 +36,13 @@ const ManageRoomModal = ({ roomId, onClose, onRefresh }) => {
   });
 
   useEffect(() => {
-    if (!roomId) {
+    if (!cleanRoomId) {
       toast.error('Invalid room ID.');
       onClose();
       return;
     }
     fetchRoomData();
-  }, [roomId]);
+  }, [cleanRoomId]);
 
   // Debounce search input
   useEffect(() => {
@@ -50,11 +59,11 @@ const ManageRoomModal = ({ roomId, onClose, onRefresh }) => {
   }, [searchQuery]);
 
   const fetchRoomData = async () => {
-    if (!roomId) return;
+    if (!cleanRoomId) return;
     try {
       const [roomRes, occRes] = await Promise.all([
-        api.get(`/admin/rooms/${roomId}`),
-        api.get(`/admin/rooms/${roomId}/occupants`),
+        api.get(`/admin/rooms/${cleanRoomId}`),
+        api.get(`/admin/rooms/${cleanRoomId}/occupants`),
       ]);
       setRoom(roomRes.data.room);
       setOccupants(occRes.data.occupants || []);
@@ -64,12 +73,12 @@ const ManageRoomModal = ({ roomId, onClose, onRefresh }) => {
   };
 
   const searchStudent = async () => {
-    if (!searchQuery.trim()) return;
+    if (!searchQuery.trim() || !cleanRoomId) return;
     setIsSearching(true);
     setSearchError('');
     setSearchResult(null);
     try {
-      const res = await api.get(`/admin/rooms/${roomId}/search-student?query=${encodeURIComponent(searchQuery.trim())}`);
+      const res = await api.get(`/admin/rooms/${cleanRoomId}/search-student?query=${encodeURIComponent(searchQuery.trim())}`);
       if (res.data.eligible) {
         setSearchResult(res.data.student);
       } else {
@@ -103,6 +112,10 @@ const ManageRoomModal = ({ roomId, onClose, onRefresh }) => {
       toast.error('Select at least one student to remove.');
       return;
     }
+    if (!cleanRoomId) {
+      toast.error('Error: Room ID not found. Please refresh and try again.');
+      return;
+    }
 
     setConfirmDialog({
       isOpen: true,
@@ -118,7 +131,7 @@ const ManageRoomModal = ({ roomId, onClose, onRefresh }) => {
       onConfirm: async () => {
         setLoading(true);
         try {
-          await api.post(`/admin/rooms/${roomId}/release`, {
+          await api.post(`/admin/rooms/${cleanRoomId}/release`, {
             studentRolls: selectedStudents,
             clearAll: false,
           });
@@ -138,6 +151,11 @@ const ManageRoomModal = ({ roomId, onClose, onRefresh }) => {
   };
 
   const handleClearAll = () => {
+    if (!cleanRoomId) {
+      toast.error('Error: Room ID not found. Please refresh and try again.');
+      return;
+    }
+
     setConfirmDialog({
       isOpen: true,
       type: 'danger',
@@ -152,7 +170,7 @@ const ManageRoomModal = ({ roomId, onClose, onRefresh }) => {
       onConfirm: async () => {
         setLoading(true);
         try {
-          await api.post(`/admin/rooms/${roomId}/release`, {
+          await api.post(`/admin/rooms/${cleanRoomId}/release`, {
             studentRolls: [],
             clearAll: true,
           });
@@ -172,10 +190,10 @@ const ManageRoomModal = ({ roomId, onClose, onRefresh }) => {
   };
 
   const handleAddStudent = async () => {
-    if (!searchResult) return;
+    if (!searchResult || !cleanRoomId) return;
     setLoading(true);
     try {
-      const res = await api.post(`/admin/rooms/${roomId}/assign-student`, {
+      const res = await api.post(`/admin/rooms/${cleanRoomId}/assign-student`, {
         rollNumber: searchResult.roll_number,
       });
       toast.success(res.data.message || `${searchResult.full_name} assigned successfully.`);

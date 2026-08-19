@@ -145,6 +145,7 @@ router.get('/blocks/:blockId/summary', getBlockSummary);
 router.get('/blocks', getBlocks);
 router.get('/blocks/:id', getBlockById);
 router.get('/blocks/:blockId', getBlockById);
+router.get('/blocks/:blockId/floors', getFloors);
 router.post('/blocks', createBlock);
 router.delete('/blocks/:id', deleteBlock);
 router.put('/blocks/:id/reserve', toggleBlockReservation);

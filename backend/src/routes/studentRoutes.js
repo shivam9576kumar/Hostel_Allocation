@@ -10,7 +10,8 @@ const {
   getFloorRooms,
   downloadAllocationPDF,
   getRoomOccupants,
-  getPdfStatus
+  getPdfStatus,
+  bookSingleSeater
 } = require('../controllers/studentController');
 const { bookRoom, pairRoom, pairByCode } = require('../controllers/bookingController');
 
@@ -42,6 +43,7 @@ router.get('/rooms/:floorId', getFloorRooms);
 router.get('/floors/:floorId/rooms', getFloorRooms);
 router.get('/room/:roomId/occupants', getRoomOccupants);
 router.post('/rooms/:roomId/book', bookingLimiter, bookRoom);
+router.post('/book-single', bookingLimiter, bookSingleSeater);
 router.post('/rooms/:roomId/pair', bookingLimiter, pairRoom);
 router.post('/pair-by-code', bookingLimiter, pairByCode);
 router.get('/pdf', downloadAllocationPDF);

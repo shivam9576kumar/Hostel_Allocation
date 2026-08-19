@@ -1,8 +1,13 @@
 import React, { useState, useEffect } from 'react';
+import { useParams } from 'react-router-dom';
 import { Plus, X, ShieldCheck } from 'lucide-react';
 import toast from 'react-hot-toast';
+import api from '../../services/api';
 
 const AddRuleForm = ({
+  block,
+  blockId,
+  floors = [],
   programmesList = ['B.Tech', 'M.Tech', 'M.Sc', 'PhD', 'B.Des', 'M.Des', 'MBA'],
   yearsList = [
     { label: '1st Year', value: '1' },
@@ -19,34 +24,115 @@ const AddRuleForm = ({
   onCancel,
   allocatedRanges = []
 }) => {
-  const [gender, setGender] = useState('Male');
-  const [programme, setProgramme] = useState('B.Tech');
-  const [allowedYear, setAllowedYear] = useState('2');
-  const [floorStart, setFloorStart] = useState('0');
-  const [floorEnd, setFloorEnd] = useState('2');
+  const params = useParams();
+  const currentBlockId = blockId || block?.block_id || params?.blockId;
+
+  const [gender, setGender] = useState('');
+  const [programme, setProgramme] = useState('');
+  const [allowedYear, setAllowedYear] = useState('');
+  const [floorStart, setFloorStart] = useState('');
+  const [floorEnd, setFloorEnd] = useState('');
   const [capacity, setCapacity] = useState('2');
   const [loading, setLoading] = useState(false);
 
+  const [maxFloor, setMaxFloor] = useState(0);
+  const [minFloor, setMinFloor] = useState(0);
+  const [totalFloors, setTotalFloors] = useState(0);
+  const [loadingFloors, setLoadingFloors] = useState(false);
+
+  useEffect(() => {
+    const fetchBlockFloors = async () => {
+      if (floors && floors.length > 0) {
+        const floorNumbers = floors.map(f => f.floor_number);
+        const minF = Math.min(...floorNumbers);
+        const maxF = Math.max(...floorNumbers);
+        setTotalFloors(floors.length);
+        setMinFloor(minF);
+        setMaxFloor(maxF);
+        if (!editingRule && floorStart === '' && floorEnd === '') {
+          setFloorStart(minF.toString());
+          setFloorEnd(minF.toString());
+        }
+        return;
+      }
+
+      if (!currentBlockId) return;
+      setLoadingFloors(true);
+      try {
+        const res = await api.get(`/admin/floors?blockId=${currentBlockId}`);
+        const fetchedFloors = res.data.floors || [];
+        if (fetchedFloors.length === 0) {
+          toast.error('This block has no floors. Please add floors first.');
+          setTotalFloors(0);
+          setMaxFloor(0);
+          setMinFloor(0);
+        } else {
+          const floorNumbers = fetchedFloors.map(f => f.floor_number);
+          const minF = Math.min(...floorNumbers);
+          const maxF = Math.max(...floorNumbers);
+          setTotalFloors(fetchedFloors.length);
+          setMinFloor(minF);
+          setMaxFloor(maxF);
+          if (!editingRule && floorStart === '' && floorEnd === '') {
+            setFloorStart(minF.toString());
+            setFloorEnd(minF.toString());
+          }
+        }
+      } catch (error) {
+        console.error('Failed to fetch block floors:', error);
+      } finally {
+        setLoadingFloors(false);
+      }
+    };
+    fetchBlockFloors();
+  }, [currentBlockId, floors, editingRule]);
+
   useEffect(() => {
     if (editingRule) {
-      setGender(editingRule.gender || 'Male');
-      setProgramme(editingRule.programme || 'B.Tech');
-      setAllowedYear(editingRule.allowed_year ? editingRule.allowed_year.toString() : '1');
-      setFloorStart(editingRule.floor_start !== undefined ? editingRule.floor_start.toString() : '0');
-      setFloorEnd(editingRule.floor_end !== undefined ? editingRule.floor_end.toString() : '2');
+      setGender(editingRule.gender || '');
+      setProgramme(editingRule.programme || '');
+      setAllowedYear(editingRule.allowed_year ? editingRule.allowed_year.toString() : '');
+      setFloorStart(editingRule.floor_start !== undefined ? editingRule.floor_start.toString() : '');
+      setFloorEnd(editingRule.floor_end !== undefined ? editingRule.floor_end.toString() : '');
       setCapacity(editingRule.capacity ? editingRule.capacity.toString() : '2');
     } else {
-      setGender('Male');
-      setProgramme('B.Tech');
-      setAllowedYear('2');
-      setFloorStart('0');
-      setFloorEnd('2');
+      setGender('');
+      setProgramme('');
+      setAllowedYear('');
+      if (totalFloors > 0) {
+        setFloorStart(minFloor.toString());
+        setFloorEnd(minFloor.toString());
+      } else {
+        setFloorStart('');
+        setFloorEnd('');
+      }
       setCapacity('2');
     }
-  }, [editingRule]);
+  }, [editingRule, totalFloors, minFloor]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    if (!gender) {
+      toast.error('Please select a gender.');
+      return;
+    }
+
+    if (!programme) {
+      toast.error('Please select a programme.');
+      return;
+    }
+
+    if (!allowedYear || allowedYear === 'ALL') {
+      toast.error('Please select a specific year (1st, 2nd, 3rd, 4th, or 5th Year).');
+      return;
+    }
+
+    if (floorStart === '' || floorEnd === '') {
+      toast.error('Please specify floor start and end numbers.');
+      return;
+    }
+
     const start = parseInt(floorStart, 10);
     const end = parseInt(floorEnd, 10);
 
@@ -55,8 +141,18 @@ const AddRuleForm = ({
       return;
     }
 
-    if (!allowedYear || allowedYear === 'ALL') {
-      toast.error('Please select a specific year (1st, 2nd, 3rd, 4th, or 5th Year).');
+    if (totalFloors === 0) {
+      toast.error('This block has no floors. Please add floors before creating a rule.');
+      return;
+    }
+
+    if (start < minFloor) {
+      toast.error(`Block floors start at ${minFloor}. Please enter a floor range within ${minFloor} to ${maxFloor}.`);
+      return;
+    }
+
+    if (end > maxFloor) {
+      toast.error(`Block has only ${totalFloors} floor(s) (${minFloor} to ${maxFloor}). Please enter a valid floor range within this block.`);
       return;
     }
 
@@ -84,6 +180,13 @@ const AddRuleForm = ({
         const handleAddFn = onAdd || onSubmit;
         if (typeof handleAddFn === 'function') {
           await handleAddFn(payload);
+          // Reset form fields after successful addition
+          setGender('');
+          setProgramme('');
+          setAllowedYear('');
+          setFloorStart('');
+          setFloorEnd('');
+          setCapacity('2');
         } else {
           toast.error('Add rule handler is not configured');
         }
@@ -123,7 +226,9 @@ const AddRuleForm = ({
             value={gender}
             onChange={(e) => setGender(e.target.value)}
             className="px-3 py-1.5 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50"
+            required
           >
+            <option value="">Select Gender</option>
             <option value="Male">Male</option>
             <option value="Female">Female</option>
           </select>
@@ -136,7 +241,9 @@ const AddRuleForm = ({
             value={programme}
             onChange={(e) => setProgramme(e.target.value)}
             className="px-3 py-1.5 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50"
+            required
           >
+            <option value="">Select Programme</option>
             {programmesList.map((p) => (
               <option key={p} value={p}>{p}</option>
             ))}
@@ -152,6 +259,7 @@ const AddRuleForm = ({
             className="px-3 py-1.5 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50"
             required
           >
+            <option value="">Select Year</option>
             {yearsList.map((y) => (
               <option key={y.value} value={y.value}>{y.label}</option>
             ))}
@@ -165,6 +273,7 @@ const AddRuleForm = ({
             type="number"
             value={floorStart}
             onChange={(e) => setFloorStart(e.target.value)}
+            placeholder="Start"
             className="w-16 px-2.5 py-1.5 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 text-center"
             min="0"
             required
@@ -174,10 +283,22 @@ const AddRuleForm = ({
             type="number"
             value={floorEnd}
             onChange={(e) => setFloorEnd(e.target.value)}
+            placeholder="End"
             className="w-16 px-2.5 py-1.5 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 text-center"
             min="0"
             required
           />
+        </div>
+
+        {/* Floor Range Helper Text */}
+        <div className="text-xs font-medium text-slate-500 w-full">
+          {loadingFloors ? (
+            'Loading floors...'
+          ) : totalFloors > 0 ? (
+            `Valid floor range: ${minFloor} to ${maxFloor} (${totalFloors} floor${totalFloors > 1 ? 's' : ''} available)`
+          ) : (
+            <span className="text-rose-500 font-semibold">No floors found for this block. Please add floors first.</span>
+          )}
         </div>
 
         {/* Capacity */}
@@ -188,19 +309,25 @@ const AddRuleForm = ({
             onChange={(e) => setCapacity(e.target.value)}
             className="px-3 py-1.5 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50"
           >
-            <option value="2">2 Seater</option>
-            <option value="3">3 Seater</option>
+            <option value="">Select Capacity</option>
+            <option value="1">1 Seater (Single)</option>
+            <option value="2">2 Seater (Double)</option>
+            <option value="3">3 Seater (Triple)</option>
           </select>
         </div>
 
         {/* Submit */}
         <button
           type="submit"
-          disabled={loading}
-          className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 disabled:opacity-50 shadow-sm"
+          disabled={loading || loadingFloors || totalFloors === 0}
+          className={`px-5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-sm ${
+            loading || loadingFloors || totalFloors === 0
+              ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
+              : 'bg-blue-600 hover:bg-blue-700 text-white'
+          }`}
         >
           <Plus className="w-4 h-4" />
-          {editingRule ? (loading ? 'Updating...' : 'Update Rule') : (loading ? 'Adding...' : '+ Add Rule')}
+          {loadingFloors ? 'Loading...' : editingRule ? (loading ? 'Updating...' : 'Update Rule') : (loading ? 'Adding...' : '+ Add Rule')}
         </button>
       </form>
     </div>

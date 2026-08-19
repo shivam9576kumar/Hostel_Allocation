@@ -21,26 +21,11 @@ const AllocationRulesManager = () => {
       const res = await api.get('/admin/hostels');
       const hostelList = res.data.hostels || [];
 
-      // For each hostel, calculate block count, rules count
-      const hostelData = await Promise.all(
-        hostelList.map(async (hostel) => {
-          const blocksRes = await api.get(`/admin/blocks?hostelId=${hostel.hostel_id}`);
-          const blocks = blocksRes.data.blocks || [];
-
-          let totalRules = 0;
-          for (const block of blocks) {
-            const rulesRes = await api.get(`/admin/allocation-rules?blockId=${block.block_id}`);
-            const rules = rulesRes.data.rules || [];
-            totalRules += rules.length;
-          }
-
-          return {
-            ...hostel,
-            blocks: blocks.length,
-            rules: totalRules
-          };
-        })
-      );
+      const hostelData = hostelList.map((hostel) => ({
+        ...hostel,
+        blocks: hostel.blocksCount ?? hostel.blockCount ?? 0,
+        rules: hostel.rulesCount ?? hostel.rules_count ?? 0,
+      }));
 
       setHostels(hostelData);
     } catch (err) {
@@ -127,6 +112,7 @@ const AllocationRulesManager = () => {
             <HostelCard
               key={hostel.hostel_id}
               hostel={hostel}
+              isRulesManager={true}
               onClick={handleHostelClick}
             />
           ))}

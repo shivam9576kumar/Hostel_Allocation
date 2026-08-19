@@ -76,6 +76,7 @@ const AddRoomsForm = ({ floorId, onSuccess, floorNumber }) => {
             onChange={(e) => setCapacity(e.target.value)}
             className="px-3 py-1.5 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
+            <option value="1">1 (Single)</option>
             <option value="2">2 (Double)</option>
             <option value="3">3 (Triple)</option>
           </select>

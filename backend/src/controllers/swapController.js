@@ -236,17 +236,20 @@ async function createRequest(req, res) {
 
     const targetCapacity = targetRoom.capacity || 2;
 
-    // Validate capacity match
-    if (sourceCapacity !== targetCapacity) {
+    // Validate capacity for swap
+    const reqSourceMoversCount = swap_type === 'single' ? 1 : (swap_type === 'double' ? 2 : sourceCapacity);
+    const reqTargetMoversCount = swap_type === 'single' ? 1 : (swap_type === 'double' ? 2 : targetCapacity);
+
+    if (reqSourceMoversCount > targetCapacity) {
       return res.status(400).json({
-        error: `Room capacity mismatch. Source room is ${sourceCapacity}-seater but target room is ${targetCapacity}-seater.`
+        error: `Cannot swap ${reqSourceMoversCount} students into a ${targetCapacity}-seater room.`
       });
     }
 
-    // Validate full occupancy of target room
-    if (targetRoom.current_occupancy !== targetCapacity) {
+    const availableVacanciesInTarget = targetCapacity - (targetRoom.current_occupancy - reqTargetMoversCount);
+    if (reqSourceMoversCount > availableVacanciesInTarget) {
       return res.status(400).json({
-        error: `Target room must be fully occupied (${targetRoom.current_occupancy}/${targetCapacity}) to participate in a swap.`
+        error: `Room is full or does not have enough capacity for ${reqSourceMoversCount} student(s).`
       });
     }
 

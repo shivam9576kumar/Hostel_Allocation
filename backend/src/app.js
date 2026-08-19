@@ -30,10 +30,10 @@ app.use(cors({
 // Enable HTTP response compression (reduces payload by 60-80%)
 app.use(compression());
 
-// Global Rate Limiter (100 requests per minute per IP)
+// Global Rate Limiter (300 requests per minute per IP)
 const globalLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 100,
+  max: 300,
   message: { error: 'Too many requests. Please try again later.' },
 });
 app.use(globalLimiter);
@@ -61,6 +61,14 @@ try {
   app.use('/admin/queues', serverAdapter.getRouter());
 } catch (err) {
   console.warn('[Bull-Board] Skipped dashboard initialization due to Redis version limitation:', err.message);
+}
+
+// Automatically start PDF Worker in server process to consume queued jobs immediately
+try {
+  require('./workers/pdfWorker');
+  console.log('🚀 [App] PDF Worker listener initialized in backend server.');
+} catch (workerErr) {
+  console.warn('[App] PDF Worker initialization warning:', workerErr.message);
 }
 
 // Healthcheck Route
@@ -109,58 +117,7 @@ async function autoSeedIfEmpty() {
       console.log(`[Auto-Seed] Ingested ${result.insertedCount} student records successfully.`);
     }
 
-    // 3. Check Hostels & Seed Sample Active Hierarchy for Instant Testing
-    const hostelCount = await Hostel.count();
-    if (hostelCount === 0) {
-      console.log('[Auto-Seed] Seeding initial active hostel hierarchy...');
-      const now = new Date();
-      const startTime = new Date(now.getTime() - 24 * 60 * 60 * 1000); // Yesterday
-      const endTime = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000); // +30 Days
-
-      // Hostel 1: Male, B.Tech, Year 3
-      const kumaon = await Hostel.create({
-        name: 'Kumaon Hostel',
-        allowed_gender: 'Male',
-        allowed_programme: 'B.Tech',
-        allowed_year: 3,
-        start_time: startTime,
-        end_time: endTime
-      });
-
-      const blockA = await Block.create({ hostel_id: kumaon.hostel_id, name: 'Block A', is_reserved: false });
-      const floor1 = await Floor.create({ block_id: blockA.block_id, floor_number: 1, is_reserved: false });
-
-      await Room.bulkCreate([
-        { floor_id: floor1.floor_id, room_number: '101', capacity: 2, current_occupancy: 0, status: 'Vacant', is_reserved: false },
-        { floor_id: floor1.floor_id, room_number: '102', capacity: 2, current_occupancy: 0, status: 'Vacant', is_reserved: false },
-        { floor_id: floor1.floor_id, room_number: '103', capacity: 2, current_occupancy: 0, status: 'Vacant', is_reserved: false },
-        { floor_id: floor1.floor_id, room_number: '104', capacity: 2, current_occupancy: 0, status: 'Vacant', is_reserved: false },
-        { floor_id: floor1.floor_id, room_number: '105', capacity: 2, current_occupancy: 0, status: 'Vacant', is_reserved: false },
-        { floor_id: floor1.floor_id, room_number: '106', capacity: 2, current_occupancy: 0, status: 'Vacant', is_reserved: false }
-      ]);
-
-      // Hostel 2: Female, M.Tech, Year 2
-      const nilgiri = await Hostel.create({
-        name: 'Nilgiri Hostel',
-        allowed_gender: 'Female',
-        allowed_programme: 'M.Tech',
-        allowed_year: 2,
-        start_time: startTime,
-        end_time: endTime
-      });
-
-      const blockN = await Block.create({ hostel_id: nilgiri.hostel_id, name: 'Block A', is_reserved: false });
-      const floorN = await Floor.create({ block_id: blockN.block_id, floor_number: 1, is_reserved: false });
-
-      await Room.bulkCreate([
-        { floor_id: floorN.floor_id, room_number: '201', capacity: 2, current_occupancy: 0, status: 'Vacant', is_reserved: false },
-        { floor_id: floorN.floor_id, room_number: '202', capacity: 2, current_occupancy: 0, status: 'Vacant', is_reserved: false },
-        { floor_id: floorN.floor_id, room_number: '203', capacity: 2, current_occupancy: 0, status: 'Vacant', is_reserved: false },
-        { floor_id: floorN.floor_id, room_number: '204', capacity: 2, current_occupancy: 0, status: 'Vacant', is_reserved: false }
-      ]);
-
-      console.log('[Auto-Seed] Seeded sample Kumaon Hostel & Nilgiri Hostel with blocks, floors, and rooms!');
-    }
+    // 3. Auto-Seed completed (Sample hostels auto-creation removed)
   } catch (err) {
     console.error('[Auto-Seed Error]:', err.message);
   }

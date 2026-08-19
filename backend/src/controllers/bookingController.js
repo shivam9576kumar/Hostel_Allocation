@@ -237,6 +237,56 @@ async function bookRoom(req, res) {
       return res.status(403).json({ error: 'No active allocation rule permits your programme and year for this room.' });
     }
 
+    // Single Seater (Capacity = 1) Direct Allocation
+    if (room.capacity === 1) {
+      await room.update({
+        status: 'Locked',
+        pairing_code: null,
+        code_expiry: null,
+        current_occupancy: 1
+      }, { transaction });
+
+      await Booking.create({
+        room_id: room.room_id,
+        student_roll: student.roll_number,
+        booking_date: now,
+        is_primary: true,
+        paired_with: null
+      }, { transaction });
+
+      await Student.update({
+        booking_status: 'Allocated',
+        booked_room_id: room.room_id
+      }, {
+        where: { roll_number: student.roll_number },
+        transaction
+      });
+
+      await transaction.commit();
+
+      try {
+        await pdfQueue.add('generate', {
+          roomId: room.room_id,
+          studentRolls: [student.roll_number],
+          isSingle: true
+        });
+      } catch (qErr) {
+        console.warn('[Queue Warning]:', qErr.message);
+      }
+
+      return res.json({
+        message: 'Single student allocated successfully.',
+        booking_status: 'Allocated',
+        room: {
+          room_id: room.room_id,
+          room_number: room.room_number,
+          status: 'Locked',
+          current_occupancy: 1,
+          capacity: 1
+        }
+      });
+    }
+
     // 4. Generate 6-digit numeric code & 10-minute expiry
     const pairingCode = generatePairingCode();
     const expiryTime = new Date(now.getTime() + 10 * 60 * 1000); // +10 mins
@@ -490,6 +540,11 @@ async function pairByCode(req, res) {
     if (!room) {
       if (!transaction.finished) await transaction.rollback();
       return res.status(400).json({ error: 'Invalid or expired pairing code. Room not found.' });
+    }
+
+    if (room.capacity === 1) {
+      if (!transaction.finished) await transaction.rollback();
+      return res.status(400).json({ error: 'This is a single seater room. Single seater rooms do not support pairing codes. Please use direct booking.' });
     }
 
     if (room.status !== 'Pending_Pairing') {

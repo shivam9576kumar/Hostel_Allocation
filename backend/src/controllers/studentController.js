@@ -527,6 +527,69 @@ async function getPdfStatus(req, res) {
   }
 }
 
+// ✅ Direct booking for single seater rooms
+async function bookSingleSeater(req, res) {
+  try {
+    const studentId = req.student ? req.student.student_id : req.body.studentId;
+    const roomId = req.body.roomId;
+
+    const room = await Room.findByPk(roomId, {
+      include: [{ model: Floor, include: [{ model: Block, include: [Hostel] }] }]
+    });
+
+    if (!room) {
+      return res.status(404).json({ error: 'Room not found' });
+    }
+
+    if (room.capacity !== 1) {
+      return res.status(400).json({ error: 'This is not a single seater room.' });
+    }
+
+    if (room.current_occupancy >= 1) {
+      return res.status(400).json({ error: 'Room is already occupied.' });
+    }
+
+    const student = req.student || await Student.findByPk(studentId);
+    if (!student) {
+      return res.status(404).json({ error: 'Student not found' });
+    }
+
+    if (student.booked_room_id || student.booking_status === 'Allocated') {
+      return res.status(400).json({ error: 'Student already has a room allocation.' });
+    }
+
+    // Allocate student to room
+    await Student.update(
+      { booked_room_id: roomId, booking_status: 'Allocated' },
+      { where: { roll_number: student.roll_number } }
+    );
+
+    // Update room occupancy & status
+    await room.update({ current_occupancy: 1, status: 'Locked' });
+
+    // Generate PDF for single student
+    const { generateSinglePDF } = require('../utils/pdfGenerator');
+    const pdfPath = await generateSinglePDF(student, room);
+
+    // Save to pdf_history
+    await PDFHistory.create({
+      student_roll: student.roll_number,
+      room_id: roomId,
+      pdf_path: pdfPath,
+      generated_at: new Date()
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Single student allocated successfully',
+      pdf_path: pdfPath
+    });
+  } catch (error) {
+    console.error('❌ Error in single booking:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
 module.exports = {
   getStudentDashboard,
   getEligibleHostels,
@@ -535,5 +598,6 @@ module.exports = {
   getFloorRooms,
   downloadAllocationPDF,
   getRoomOccupants,
-  getPdfStatus
+  getPdfStatus,
+  bookSingleSeater
 };
