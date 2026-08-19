@@ -255,7 +255,7 @@ async function bookRoom(req, res) {
       }, { transaction });
 
       await Student.update({
-        booking_status: 'Allocated',
+        booking_status: 'Locked',
         booked_room_id: room.room_id
       }, {
         where: { roll_number: student.roll_number },
@@ -276,7 +276,7 @@ async function bookRoom(req, res) {
 
       return res.json({
         message: 'Single student allocated successfully.',
-        booking_status: 'Allocated',
+        booking_status: 'Locked',
         room: {
           room_id: room.room_id,
           room_number: room.room_number,

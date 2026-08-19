@@ -278,7 +278,7 @@ const Dashboard = () => {
         )}
 
         {/* Active Booking Room Status Card OR Booking Selector */}
-        {user?.booked_room_id && (user?.booking_status === 'Pending_Pairing' || user?.booking_status === 'Locked') ? (
+        {user?.booked_room_id && (user?.booking_status === 'Pending_Pairing' || user?.booking_status === 'Locked' || user?.booking_status === 'Allocated') ? (
           <RoomStatusCard
             room={dashboardData?.student?.BookedRoom || { room_id: user.booked_room_id }}
             user={user}
