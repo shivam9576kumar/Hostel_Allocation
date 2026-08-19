@@ -56,10 +56,14 @@ async function parseAndInsertStudents(filePath) {
       const department = parsed ? parsed.department : null;
 
       let hostelStayEndYear = null;
-      if (admissionYear && programCode) {
+      let validProgramCode = null;
+      if (programCode) {
         const pcRecord = await ProgramCode.findOne({ where: { code: programCode } });
         if (pcRecord) {
-          hostelStayEndYear = admissionYear + pcRecord.hostel_stay;
+          validProgramCode = pcRecord.code;
+          if (admissionYear) {
+            hostelStayEndYear = admissionYear + pcRecord.hostel_stay;
+          }
         }
       }
 
@@ -89,7 +93,7 @@ async function parseAndInsertStudents(filePath) {
         year: year,
         department: department,
         admission_year: admissionYear,
-        program_code: programCode,
+        program_code: validProgramCode,
         hostel_stay_end_year: hostelStayEndYear,
         status: 'active',
         booking_status: 'Pending',

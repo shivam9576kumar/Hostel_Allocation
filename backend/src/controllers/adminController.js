@@ -48,6 +48,7 @@ async function uploadStudents(req, res) {
           }
 
           const program = programCode ? await ProgramCode.findOne({ where: { code: programCode } }) : null;
+          const validProgramCode = program ? program.code : null;
           const hostel_stay_end_year = (admissionYear && program) ? (admissionYear + program.hostel_stay) : null;
           const email = studentData.email || generateEmail(studentData.full_name, studentData.roll_number);
 
@@ -59,7 +60,7 @@ async function uploadStudents(req, res) {
             programme: studentData.programme,
             year: parseInt(studentData.year, 10),
             admission_year: admissionYear,
-            program_code: programCode,
+            program_code: validProgramCode,
             department,
             hostel_stay_end_year,
             status: 'active',
