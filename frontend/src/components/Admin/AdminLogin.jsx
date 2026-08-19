@@ -7,12 +7,6 @@ const AdminLogin = ({ onSwitchToStudent }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
-  const sampleAdmins = [
-    { name: 'Baboo Boss (Super Admin)', email: 'baboo.boss@admin.iit.ac.in' },
-    { name: 'Shubham (Admin)', email: 'shubham@admin.iit.ac.in' },
-    { name: 'Ayesha Khan (Admin)', email: 'ayesha.khan@admin.iit.ac.in' }
-  ];
-
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!email || !password) {
@@ -50,22 +44,23 @@ const AdminLogin = ({ onSwitchToStudent }) => {
         )}
 
         <form onSubmit={handleSubmit} className="space-y-5">
-          {/* Admin Email Preset Selector */}
+          {/* Admin Email Manual Input */}
           <div>
             <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
-              Select Admin Account
+              Admin Email
             </label>
-            <select
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500 text-sm"
-            >
-              {sampleAdmins.map((a, idx) => (
-                <option key={idx} value={a.email}>
-                  {a.name} - {a.email}
-                </option>
-              ))}
-            </select>
+            <div className="relative">
+              <Mail className="w-5 h-5 text-slate-500 absolute left-4 top-3.5" />
+              <input
+                type="email"
+                name="email"
+                placeholder="Enter your admin email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-12 pr-4 py-3 text-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+              />
+            </div>
           </div>
 
           <div>
