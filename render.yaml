@@ -1,5 +1,5 @@
 services:
-  - type: postgres
+  - type: postgresql
     name: hostel-db
     plan: starter
   - type: redis
