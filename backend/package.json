@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "Backend for IIT Hostel Booking and Allocation System",
   "main": "src/app.js",
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "scripts": {
     "start": "node src/app.js",
     "dev": "node src/app.js",

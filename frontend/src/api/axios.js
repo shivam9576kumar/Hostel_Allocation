@@ -1,8 +1,9 @@
 import axios from 'axios';
 
-// Use VITE_API_URL from environment, fallback to '/api' for proxy
-const API_BASE_URL = import.meta.env.VITE_API_URL 
-  ? `${import.meta.env.VITE_API_URL}/api` 
+// Use VITE_REACT_APP_API_URL or VITE_API_URL from environment, fallback to '/api' for proxy
+const rawBaseUrl = import.meta.env.VITE_REACT_APP_API_URL || import.meta.env.VITE_API_URL || import.meta.env.REACT_APP_API_URL;
+const API_BASE_URL = rawBaseUrl 
+  ? (rawBaseUrl.endsWith('/api') ? rawBaseUrl : `${rawBaseUrl.replace(/\/$/, '')}/api`) 
   : '/api';
 
 const api = axios.create({
