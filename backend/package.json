@@ -16,7 +16,7 @@
     "@bull-board/express": "^8.6.1",
     "bcryptjs": "^2.4.3",
     "bull": "^4.16.5",
-    "bullmq": "^4.18.3",
+    "bullmq": "^6.1.2",
     "compression": "^1.8.1",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
