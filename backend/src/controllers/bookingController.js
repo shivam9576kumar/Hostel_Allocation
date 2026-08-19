@@ -267,9 +267,10 @@ async function bookRoom(req, res) {
       try {
         await pdfQueue.add('generate', {
           roomId: room.room_id,
-          studentRolls: [student.roll_number],
-          isSingle: true
+          occupantRolls: [student.roll_number],
+          allocationDate: now
         });
+        console.log(`📄 Single student PDF generation job added to queue for room ${room.room_id}`);
       } catch (qErr) {
         console.warn('[Queue Warning]:', qErr.message);
       }
