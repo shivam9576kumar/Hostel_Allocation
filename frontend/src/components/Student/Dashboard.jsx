@@ -278,10 +278,12 @@ const Dashboard = () => {
         )}
 
         {/* Active Booking Room Status Card OR Booking Selector */}
-        {user?.booked_room_id && (user?.booking_status === 'Pending_Pairing' || user?.booking_status === 'Locked' || user?.booking_status === 'Allocated') ? (
+        {(dashboardData?.student?.booked_room_id || user?.booked_room_id) && (
+          ['Pending_Pairing', 'Locked', 'Allocated'].includes(dashboardData?.student?.booking_status || user?.booking_status)
+        ) ? (
           <RoomStatusCard
-            room={dashboardData?.student?.BookedRoom || { room_id: user.booked_room_id }}
-            user={user}
+            room={dashboardData?.student?.BookedRoom || { room_id: dashboardData?.student?.booked_room_id || user?.booked_room_id }}
+            user={dashboardData?.student || user}
             onPdfReady={() => window.location.href = '/pdf'}
             onNavigate={fetchDashboard}
           />
