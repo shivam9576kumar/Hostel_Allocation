@@ -1,13 +1,13 @@
 services:
   # ==================== 1. POSTGRESQL DATABASE ====================
-  - type: postgresql
+  - type: postgres
     name: hostel-db
-    plan: starter  # Change to "free" if you are on the free tier, but note free DB expires after 90 days
+    plan: starter
 
   # ==================== 2. REDIS CACHE/QUEUE ====================
   - type: redis
     name: hostel-redis
-    plan: starter  # Free tier available, check Render pricing
+    plan: starter
 
   # ==================== 3. BACKEND API ====================
   - type: web
@@ -32,25 +32,20 @@ services:
           type: redis
           property: connectionString
       - key: JWT_SECRET
-        generateValue: true  # Render auto-generates a strong secret
-      - key: CORS_ORIGIN
-        fromService:
-          name: hostel-frontend
-          type: static
-          property: host  # Automatically allows your frontend URL
+        generateValue: true
 
   # ==================== 4. FRONTEND STATIC SITE ====================
   - type: static
     name: hostel-frontend
     rootDir: frontend
     buildCommand: npm install && npm run build
-    staticPublishPath: dist  # If you use Vite. If Create-React-App, use "build"
+    staticPublishPath: dist
     envVars:
       - key: REACT_APP_API_URL
         fromService:
           name: hostel-backend
           type: web
-          property: host  # Injects the backend URL like https://hostel-backend.onrender.com
+          property: host
 
   # ==================== 5. PDF BACKGROUND WORKER ====================
   - type: worker
