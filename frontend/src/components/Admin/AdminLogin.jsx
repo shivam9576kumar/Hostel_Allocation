@@ -4,8 +4,8 @@ import { ShieldCheck, Lock, Mail, AlertCircle, ArrowLeft } from 'lucide-react';
 
 const AdminLogin = ({ onSwitchToStudent }) => {
   const { loginAdmin, loading, error, setError } = useAuth();
-  const [email, setEmail] = useState('baboo.boss@admin.iit.ac.in');
-  const [password, setPassword] = useState('Admin@123');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
 
   const sampleAdmins = [
     { name: 'Baboo Boss (Super Admin)', email: 'baboo.boss@admin.iit.ac.in' },
@@ -76,7 +76,7 @@ const AdminLogin = ({ onSwitchToStudent }) => {
               <Lock className="w-5 h-5 text-slate-500 absolute left-4 top-3.5" />
               <input
                 type="password"
-                placeholder="Admin@123"
+                placeholder="••••••••"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-12 pr-4 py-3 text-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
