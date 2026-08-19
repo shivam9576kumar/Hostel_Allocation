@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { Plus, X, ShieldCheck } from 'lucide-react';
 import toast from 'react-hot-toast';
-import api from '../../services/api';
+import api from '../../api/axios';
 
 const AddRuleForm = ({
   block,
