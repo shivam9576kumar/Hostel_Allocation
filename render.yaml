@@ -1,15 +1,12 @@
 services:
-  # ==================== 1. POSTGRESQL DATABASE ====================
   - type: postgres
     name: hostel-db
     plan: starter
 
-  # ==================== 2. REDIS CACHE/QUEUE ====================
   - type: redis
     name: hostel-redis
     plan: starter
 
-  # ==================== 3. BACKEND API ====================
   - type: web
     name: hostel-backend
     runtime: node
@@ -34,7 +31,6 @@ services:
       - key: JWT_SECRET
         generateValue: true
 
-  # ==================== 4. FRONTEND STATIC SITE ====================
   - type: static
     name: hostel-frontend
     rootDir: frontend
@@ -47,7 +43,6 @@ services:
           type: web
           property: host
 
-  # ==================== 5. PDF BACKGROUND WORKER ====================
   - type: worker
     name: hostel-pdf-worker
     runtime: node
