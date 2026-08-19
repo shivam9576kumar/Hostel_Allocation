@@ -2,11 +2,9 @@ services:
   - type: postgres
     name: hostel-db
     plan: starter
-
   - type: redis
     name: hostel-redis
     plan: starter
-
   - type: web
     name: hostel-backend
     runtime: node
@@ -30,7 +28,6 @@ services:
           property: connectionString
       - key: JWT_SECRET
         generateValue: true
-
   - type: static
     name: hostel-frontend
     rootDir: frontend
@@ -42,7 +39,6 @@ services:
           name: hostel-backend
           type: web
           property: host
-
   - type: worker
     name: hostel-pdf-worker
     runtime: node
