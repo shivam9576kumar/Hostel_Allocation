@@ -2269,23 +2269,25 @@ async function getStudentHistory(req, res) {
 // 13. Batch remove students by programme + year
 async function batchRemoveStudents(req, res) {
   try {
+    const rollNumbers = req.body?.rollNumbers || req.body?.studentIds || req.body?.roll_numbers;
     const programme = req.body?.programme || req.query?.programme;
     const rawYear = req.body?.year !== undefined ? req.body.year : req.query?.year;
-    if (!programme || rawYear === undefined) {
-      return res.status(400).json({ error: 'programme and year are required' });
-    }
-    const year = parseInt(rawYear, 10);
 
-    const students = await Student.findAll({
-      where: {
-        programme,
-        year,
-        status: 'active',
-      },
-    });
+    let whereClause = {};
+
+    if (Array.isArray(rollNumbers) && rollNumbers.length > 0) {
+      whereClause = { roll_number: rollNumbers };
+    } else if (programme && rawYear !== undefined) {
+      const year = parseInt(rawYear, 10);
+      whereClause = { programme, year, status: 'active' };
+    } else {
+      return res.status(400).json({ error: 'programme and year are required (or rollNumbers array)' });
+    }
+
+    const students = await Student.findAll({ where: whereClause });
 
     if (students.length === 0) {
-      return res.status(404).json({ error: 'No students found in this batch' });
+      return res.status(404).json({ error: 'No matching students found to remove' });
     }
 
     const roomIds = students.map(s => s.booked_room_id).filter(id => id !== null);
@@ -2306,7 +2308,7 @@ async function batchRemoveStudents(req, res) {
 
     return res.json({
       success: true,
-      message: `Removed ${deletedCount} students from ${programme} Year ${year}`,
+      message: `Successfully removed ${deletedCount} student(s).`,
       deletedCount,
       freedRooms: roomIds.length,
     });
