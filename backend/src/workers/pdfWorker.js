@@ -2,7 +2,7 @@
 
 const pdfQueue = require('../queues/pdfQueue');
 const failedPdfQueue = require('../queues/failedPdfQueue');
-const { Student, Room, Floor, Block, Hostel, Booking, PDFHistory } = require('../models');
+const { Student, Room, Floor, Block, Hostel, PDFHistory } = require('../models');
 const { generateAllocationPDF } = require('../utils/pdfGenerator');
 
 console.log('🚀 PDF Worker is running and listening for jobs (DLQ Enabled)...');

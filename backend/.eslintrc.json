@@ -1,0 +1,21 @@
+{
+  "plugins": [
+    "security"
+  ],
+  "extends": [
+    "eslint:recommended",
+    "plugin:security/recommended-legacy"
+  ],
+  "parserOptions": {
+    "ecmaVersion": 2022,
+    "sourceType": "module"
+  },
+  "env": {
+    "node": true,
+    "es6": true
+  },
+  "rules": {
+    "security/detect-eval-with-expression": "error",
+    "security/detect-child-process": "error"
+  }
+}

@@ -1,16 +1,14 @@
 console.log('🚀 APP.JS IS EXECUTING!');
 
 const express = require('express');
-const cors = require('cors');
 const path = require('path');
 const bcrypt = require('bcryptjs');
 const env = require('./config/env');
-const { sequelize, Admin, Student, Hostel, Block, Floor, Room } = require('./models');
+const { sequelize, Admin, Student } = require('./models');
 const { initDatabaseConnection } = require('./config/database');
 const { initExpiryCronJob } = require('./jobs/expiryCleanup');
 const { initSwapExpiryJob } = require('./jobs/swapExpiry');
 const { parseAndInsertStudents } = require('./utils/csvParser');
-const { studentRateLimiter, adminRateLimiter } = require('./middleware/rateLimiter');
 
 const cookieParser = require('cookie-parser');
 

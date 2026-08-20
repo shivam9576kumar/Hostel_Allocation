@@ -2,7 +2,6 @@ const crypto = require('crypto');
 
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 16; // 128-bit IV
-const TAG_LENGTH = 16; // 128-bit auth tag
 const ENCODING = 'hex';
 
 // Fallback 32-byte default key for dev/local testing if env var not set

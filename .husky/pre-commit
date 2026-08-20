@@ -1,0 +1,17 @@
+#!/bin/sh
+
+# 1. Secret Scanner (Prevent .env or secret file commits)
+if git diff --cached --name-only | grep -E "\.env$|secrets|keys\.pem"; then
+  echo "❌ .env or secret files detected in staged changes. Remove them before committing."
+  exit 1
+fi
+
+# 2. Run ESLint check
+cd backend
+npm run lint
+if [ $? -ne 0 ]; then
+  echo "❌ ESLint security check failed. Commit aborted."
+  exit 1
+fi
+
+echo "✅ Pre-commit security hooks passed."
