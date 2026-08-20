@@ -19,6 +19,10 @@ const connectionString = DATABASE_URL || `postgresql://${DB_USER || 'hostel_user
 
 const sequelize = new Sequelize(connectionString, {
   dialect: 'postgres',
+  define: {
+    timestamps: false,
+    underscored: true
+  },
   pool: {
     max: parseInt(DB_POOL_MAX, 10),
     min: parseInt(DB_POOL_MIN, 10),

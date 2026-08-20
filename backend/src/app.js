@@ -145,9 +145,10 @@ async function startServer() {
     initExpiryCronJob();
     initSwapExpiryJob();
 
-    const PORT = env.port;
-    app.listen(PORT, () => {
-      console.log(`[Server] IIT Hostel Booking API running on port ${PORT}`);
+    const PORT = env.port || 5000;
+    const HOST = process.env.HOST || '0.0.0.0';
+    app.listen(PORT, HOST, () => {
+      console.log(`[Server] IIT Hostel Booking API running on ${HOST}:${PORT}`);
     });
   } catch (err) {
     console.error('[Server Error] Failed to start server:', err);
