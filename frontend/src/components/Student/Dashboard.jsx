@@ -144,7 +144,7 @@ const Dashboard = () => {
     if (room.status === 'Vacant') {
       setSelectedRoomForBooking(room);
       setBookingResult(null);
-    } else if (room.status === 'Pending_Pairing') {
+    } else if (room.status === 'Pending_Pairing' || room.status === 'Pending') {
       setSelectedRoomForPairing(room);
     } else if (room.status === 'Locked') {
       toast.error('Room is already locked and fully occupied.');

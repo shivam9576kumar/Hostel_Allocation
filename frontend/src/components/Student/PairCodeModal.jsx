@@ -1,24 +1,37 @@
 import React, { useState } from 'react';
 import { Key, Users, AlertCircle, X, ShieldCheck } from 'lucide-react';
+import { pairRoom, pairByCode } from '../../api/student';
 
-const PairCodeModal = ({ room, onClose, onSubmitPairCode }) => {
+const PairCodeModal = ({ room, onClose, onSubmitPairCode, onSuccess }) => {
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!code || code.trim().length < 6) {
-      setError('Please enter a valid pairing code.');
+    const trimmedCode = code.trim().toUpperCase();
+    if (!trimmedCode || trimmedCode.length < 6) {
+      setError('Please enter a valid pairing code (at least 6 characters).');
       return;
     }
 
     setLoading(true);
     setError(null);
     try {
-      await onSubmitPairCode(code.trim());
+      if (onSubmitPairCode) {
+        await onSubmitPairCode(trimmedCode);
+      } else {
+        const roomId = room?.room_id || room?.id;
+        if (roomId) {
+          await pairRoom(roomId, trimmedCode);
+        } else {
+          await pairByCode(trimmedCode);
+        }
+      }
+      if (onSuccess) onSuccess(room);
+      if (onClose) onClose();
     } catch (err) {
-      setError(err.message || 'Pairing failed. Code may be invalid or expired.');
+      setError(err.response?.data?.error || err.message || 'Pairing failed. Code may be invalid or expired.');
       setLoading(false);
     }
   };
@@ -59,10 +72,11 @@ const PairCodeModal = ({ room, onClose, onSubmitPairCode }) => {
               <input
                 type="text"
                 maxLength={8}
-                placeholder="e.g. I1IK2TF0"
+                placeholder="e.g. B0D5HD24"
                 value={code}
                 onChange={(e) => setCode(e.target.value.replace(/[^A-Za-z0-9]/g, '').toUpperCase())}
                 className="w-full bg-slate-50 border border-slate-300 rounded-2xl pl-12 pr-4 py-3 text-slate-900 text-xl font-mono tracking-widest focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition uppercase"
+                autoFocus
               />
             </div>
           </div>
@@ -81,7 +95,7 @@ const PairCodeModal = ({ room, onClose, onSubmitPairCode }) => {
               className="flex-1 py-3 px-4 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-xl shadow-lg shadow-blue-600/30 transition disabled:opacity-50 flex items-center justify-center gap-2"
             >
               <ShieldCheck className="w-5 h-5" />
-              {loading ? 'Validating...' : 'Verify & Lock Room'}
+              {loading ? 'Joining...' : 'Verify & Join Room'}
             </button>
           </div>
         </form>
