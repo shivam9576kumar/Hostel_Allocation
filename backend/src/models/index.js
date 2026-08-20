@@ -1,3 +1,5 @@
+const { DataTypes } = require('sequelize');
+const sequelize = require('../config/database');
 const { encrypt, decrypt } = require('../utils/encryption');
 
 const Admin = sequelize.define('Admin', {
