@@ -21,6 +21,10 @@ class MemoryRedisFallback {
     return 'OK';
   }
 
+  async setEx(key, seconds, value) {
+    return this.set(key, value, 'EX', seconds);
+  }
+
   async get(key) {
     return this.store.get(key) || null;
   }
@@ -39,38 +43,59 @@ class MemoryRedisFallback {
     if (!this.store.has(key)) return -2;
     return 600;
   }
+
+  async ping() {
+    return 'PONG';
+  }
 }
 
 let redisClient;
 
+const redisUrl = process.env.REDIS_URL || env.redisUrl || 'redis://localhost:6379';
+
 try {
-  redisClient = new Redis(env.redisUrl, {
-    maxRetriesPerRequest: 1,
+  redisClient = new Redis(redisUrl, {
+    maxRetriesPerRequest: 3,
     retryStrategy: (times) => {
-      if (times > 2) {
-        return null; // Stop retrying and trigger error / fallback
+      if (times > 5) {
+        console.log('❌ [Redis] Max retries reached. Falling back to memory store.');
+        return null;
       }
-      return 200;
+      return Math.min(times * 50, 2000);
     },
-    lazyConnect: true
+    enableReadyCheck: true,
+    lazyConnect: true,
+    connectTimeout: 10000,
+    disconnectTimeout: 2000,
+    commandTimeout: 5000,
   });
 
   redisClient.connect().then(() => {
-    console.log('[Redis Config] Connected to Redis server successfully.');
+    console.log('✅ [Redis] Connected to Redis server successfully.');
   }).catch((err) => {
-    console.warn('[Redis Config] Could not connect to Redis server. Switching to fallback memory store.', err.message);
+    console.warn('⚠️ [Redis] Connection warning, switching to fallback store:', err.message);
     redisClient = new MemoryRedisFallback();
   });
 
+  redisClient.on('connect', () => console.log('✅ [Redis] Connected to Redis server successfully.'));
+  redisClient.on('ready', () => console.log('✅ [Redis] Client is ready and operational.'));
   redisClient.on('error', (err) => {
     if (!(redisClient instanceof MemoryRedisFallback)) {
-      console.warn('[Redis Error] Redis connection warning:', err.message);
+      console.warn('❌ [Redis] Error:', err.message);
     }
   });
+  redisClient.on('close', () => console.log('⚠️ [Redis] Connection closed.'));
 
 } catch (err) {
-  console.warn('[Redis Config] Using fallback memory store.');
+  console.warn('⚠️ [Redis] Using fallback memory store:', err.message);
   redisClient = new MemoryRedisFallback();
+}
+
+// Add setEx compatibility helper for ioredis
+if (!redisClient.setEx) {
+  redisClient.setEx = function(key, seconds, value) {
+    return this.set(key, value, 'EX', seconds);
+  };
 }
 
 async function setSwapActive(isActive) {
@@ -83,7 +108,9 @@ async function isSwapActive() {
   return val === 'true';
 }
 
+redisClient.setSwapActive = setSwapActive;
+redisClient.isSwapActive = isSwapActive;
+
 module.exports = redisClient;
 module.exports.setSwapActive = setSwapActive;
 module.exports.isSwapActive = isSwapActive;
-

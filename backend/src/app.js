@@ -8,6 +8,8 @@ const { initDatabaseConnection } = require('./config/database');
 const { initExpiryCronJob } = require('./jobs/expiryCleanup');
 const { initSwapExpiryJob } = require('./jobs/swapExpiry');
 const { parseAndInsertStudents } = require('./utils/csvParser');
+const { studentRateLimiter, adminRateLimiter } = require('./middleware/rateLimiter');
+const healthRoutes = require('./routes/health');
 
 const authRoutes = require('./routes/authRoutes');
 const adminRoutes = require('./routes/adminRoutes');
@@ -15,9 +17,11 @@ const studentRoutes = require('./routes/studentRoutes');
 const swapRoutes = require('./routes/swapRoutes');
 
 const compression = require('compression');
-const rateLimit = require('express-rate-limit');
 
 const app = express();
+
+// Enable trust proxy
+app.set('trust proxy', process.env.TRUST_PROXY === 'true' || process.env.NODE_ENV === 'production' ? 1 : 0);
 
 // Fix for "Cannot GET /"
 app.get('/', (req, res) => {
@@ -35,13 +39,12 @@ app.use(cors({
 // Enable HTTP response compression (reduces payload by 60-80%)
 app.use(compression());
 
-// Global Rate Limiter (300 requests per minute per IP)
-const globalLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 300,
-  message: { error: 'Too many requests. Please try again later.' },
-});
-app.use(globalLimiter);
+// Apply rate limiters
+app.use('/api/students', studentRateLimiter);
+app.use('/api/student', studentRateLimiter);
+app.use('/api/booking', studentRateLimiter);
+app.use('/api/swap', studentRateLimiter);
+app.use('/api/admin', adminRateLimiter);
 
 // Body parsers
 app.use(express.json());
@@ -77,9 +80,7 @@ try {
 }
 
 // Healthcheck Route
-app.get('/health', (req, res) => {
-  res.json({ status: 'UP', timestamp: new Date() });
-});
+app.use('/health', healthRoutes);
 
 // Route Registrations
 app.use('/api', authRoutes);
@@ -152,5 +153,3 @@ if (require.main === module) {
 }
 
 module.exports = app;
-// Server reloaded successfully
-

@@ -5,11 +5,32 @@ const fs = require('fs');
 const { generateAllocationPDF } = require('../utils/pdfGenerator');
 const redisClient = require('../config/redis');
 
-// Student Dashboard Info & State Persistence Check
+// Student Dashboard Info & State Persistence Check (Redis Cached)
+const CACHE_TTL = parseInt(process.env.CACHE_TTL_DASHBOARD || 15, 10); // 15 seconds
+
 async function getStudentDashboard(req, res) {
   try {
-    const studentRoll = req.student.roll_number;
+    const studentRoll = req.student?.roll_number || req.user?.roll_number;
 
+    if (!studentRoll) {
+      return res.status(401).json({ success: false, error: 'Unauthorized' });
+    }
+
+    const cacheKey = `dashboard:${studentRoll}`;
+
+    // 1. Try Redis cache first
+    try {
+      const cached = await redisClient.get(cacheKey);
+      if (cached) {
+        console.log(`✅ [Cache] Dashboard hit for ${studentRoll}`);
+        return res.json(JSON.parse(cached));
+      }
+      console.log(`⏳ [Cache] Dashboard miss for ${studentRoll}`);
+    } catch (cacheError) {
+      console.warn('⚠️ [Cache] Redis read error, falling back to DB:', cacheError.message);
+    }
+
+    // 2. Query database (optimized)
     const student = await Student.findOne({
       where: { roll_number: studentRoll },
       include: [
@@ -22,12 +43,12 @@ async function getStudentDashboard(req, res) {
     });
 
     if (!student) {
-      return res.status(404).json({ error: 'Student profile not found.' });
+      return res.status(404).json({ success: false, error: 'Student profile not found.' });
     }
 
     const isLocked = student.booking_status === 'Locked';
 
-    // Find latest PDF history entry to check version & swap status
+    // Find latest PDF history entry
     const latestPdf = await PDFHistory.findOne({
       where: { student_roll: studentRoll, is_current: true },
       order: [['version', 'DESC']]
@@ -42,45 +63,61 @@ async function getStudentDashboard(req, res) {
       const settings = await GlobalSetting.findOne({ where: { id: 1 } });
       const isWindowActive = settings && settings.booking_start_time && settings.booking_end_time
         ? (now >= new Date(settings.booking_start_time) && now <= new Date(settings.booking_end_time))
-        : true; // Default to true if not strictly set
+        : true;
 
       if (isWindowActive) {
-        const allHostels = await Hostel.findAll({
-          order: [['name', 'ASC']]
+        const matchingRules = await AllocationRule.findAll({
+          where: {
+            programme: student.programme,
+            [Op.and]: [
+              { [Op.or]: [{ gender: student.gender }, { gender: null }] },
+              { [Op.or]: [{ allowed_year: student.year }, { allowed_year: null }] }
+            ]
+          },
+          attributes: ['hostel_id'],
+          raw: true
         });
 
-        for (const hostel of allHostels) {
-          const ruleCount = await AllocationRule.count({
-            where: {
-              hostel_id: hostel.hostel_id,
-              programme: student.programme,
-              [Op.and]: [
-                { [Op.or]: [{ gender: student.gender }, { gender: null }] },
-                { [Op.or]: [{ allowed_year: student.year }, { allowed_year: null }] }
-              ]
-            }
+        const eligibleHostelIds = [...new Set(matchingRules.map(r => r.hostel_id))];
+        if (eligibleHostelIds.length > 0) {
+          eligibleHostels = await Hostel.findAll({
+            where: { hostel_id: { [Op.in]: eligibleHostelIds } },
+            order: [['name', 'ASC']]
           });
-          if (ruleCount > 0) {
-            eligibleHostels.push(hostel);
-          }
         }
       }
     }
 
-    return res.json({
+    const dashboardData = {
+      success: true,
       student,
       bookingStatus: student.booking_status,
       redirectToPdf: isLocked,
+      isAllocated: !!student.booked_room_id,
       pdfInfo: latestPdf ? {
         version: latestPdf.version,
         isSwap: latestPdf.is_swap,
         generatedAt: latestPdf.generated_at
       } : null,
       eligibleHostels
-    });
+    };
+
+    // 3. Store in Redis
+    try {
+      if (typeof redisClient.setEx === 'function') {
+        await redisClient.setEx(cacheKey, CACHE_TTL, JSON.stringify(dashboardData));
+      } else {
+        await redisClient.set(cacheKey, JSON.stringify(dashboardData), 'EX', CACHE_TTL);
+      }
+      console.log(`✅ [Cache] Dashboard cached for ${studentRoll}`);
+    } catch (cacheError) {
+      console.warn('⚠️ [Cache] Redis write error:', cacheError.message);
+    }
+
+    return res.json(dashboardData);
   } catch (err) {
-    console.error('Error in getStudentDashboard:', err);
-    return res.status(500).json({ error: 'Failed to fetch student dashboard details.' });
+    console.error('❌ Dashboard error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to fetch student dashboard details.' });
   }
 }
 
