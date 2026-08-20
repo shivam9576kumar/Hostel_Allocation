@@ -1,8 +1,9 @@
 const crypto = require('crypto');
 
 const csrfProtection = (req, res, next) => {
-  // 🔴 SKIP CSRF FOR LOGIN ENDPOINTS (Temporary bypass for demo)
-  if (req.path === '/api/admin/login' || req.path === '/api/students/login' || req.path.endsWith('/login')) {
+  // 🔴 SKIP CSRF FOR ALL AUTHENTICATION ROUTES (Login, OAuth, Callbacks)
+  const authPaths = ['/api/admin/login', '/api/students/login', '/api/student/microsoft', '/api/student/callback'];
+  if (authPaths.includes(req.path) || req.path.startsWith('/api/student/') || req.path.endsWith('/login')) {
     return next();
   }
 
