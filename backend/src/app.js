@@ -12,7 +12,6 @@ const { studentRateLimiter, adminRateLimiter } = require('./middleware/rateLimit
 
 // Import Health Routes
 const healthRoutes = require('./routes/health');
-const { handleHealthCheck } = require('./routes/health');
 
 const authRoutes = require('./routes/authRoutes');
 const adminRoutes = require('./routes/adminRoutes');
@@ -43,8 +42,6 @@ app.use(cors({
 app.use(compression());
 
 // ============= HEALTH CHECK =============
-app.get('/health', handleHealthCheck);
-app.get('/api/health', handleHealthCheck);
 app.use('/health', healthRoutes);
 app.use('/api/health', healthRoutes);
 
