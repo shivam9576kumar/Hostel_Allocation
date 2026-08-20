@@ -61,6 +61,12 @@ app.get('/', (req, res) => {
   });
 });
 
+const { attachCorrelationId } = require('./utils/logger');
+const { logAction } = require('./middleware/auditLog');
+const { checkImpossibleTravel } = require('./services/monitoring/geoDetection');
+const { circuitBreaker } = require('./middleware/circuitBreaker');
+const { router: metricsRouter, trackRequests } = require('./routes/metrics');
+
 const helmet = require('helmet');
 const corsConfig = require('./middleware/corsConfig');
 const { ipWhitelist } = require('./middleware/ipWhitelist');
@@ -71,6 +77,14 @@ const {
   adminLimiter,
   pairingBruteForceLimiter
 } = require('./middleware/rateLimiters');
+
+// Apply correlation ID & metrics tracking FIRST
+app.use(attachCorrelationId);
+app.use(trackRequests);
+app.use(metricsRouter);
+app.use(circuitBreaker);
+app.use(checkImpossibleTravel);
+app.use(logAction);
 
 // 🔒 Network Fortification: Helmet with Strict CSP
 app.use(

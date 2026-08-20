@@ -599,6 +599,8 @@ AllocationRule.belongsTo(Block, { foreignKey: 'block_id', onDelete: 'SET NULL' }
 Student.belongsTo(ProgramCode, { foreignKey: 'program_code', targetKey: 'code' });
 ProgramCode.hasMany(Student, { foreignKey: 'program_code', sourceKey: 'code' });
 
+const AuditLog = require('./AuditLog');
+
 module.exports = {
   sequelize,
   Admin,
@@ -613,5 +615,6 @@ module.exports = {
   PDFHistory,
   AllocationRule,
   GlobalSetting,
-  RefreshToken
+  RefreshToken,
+  AuditLog
 };
