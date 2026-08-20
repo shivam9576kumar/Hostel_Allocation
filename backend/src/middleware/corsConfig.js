@@ -1,6 +1,7 @@
 const cors = require('cors');
 
 const allowedOrigins = [
+  'https://hostel-frontend-5k7l.onrender.com',
   'https://hostel-frontend.onrender.com',
   'https://hostel-backend-hbul.onrender.com',
   'https://www.hostel.iitp.ac.in',
