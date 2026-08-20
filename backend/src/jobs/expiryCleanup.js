@@ -62,6 +62,17 @@ function initExpiryCronJob() {
 
           await transaction.commit();
 
+          // Broadcast room status update via Socket.IO
+          try {
+            const app = require('../app');
+            const broadcastRoomUpdate = app.get('broadcastRoomUpdate');
+            if (broadcastRoomUpdate && room.floor_id) {
+              broadcastRoomUpdate(room.floor_id, room.room_id, 'Vacant', 0);
+            }
+          } catch (bErr) {
+            console.warn('[Cron Expiry Broadcast Warning]:', bErr.message);
+          }
+
           // 3. Clear Redis key
           try {
             if (redisClient && typeof redisClient.del === 'function') {

@@ -349,6 +349,7 @@ const Dashboard = () => {
 
                   <RoomGrid
                     rooms={rooms}
+                    floorId={selectedFloor}
                     onSelectRoom={handleRoomClick}
                   />
                 </div>

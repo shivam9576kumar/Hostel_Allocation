@@ -1,5 +1,5 @@
-console.log('🚀 APP.JS IS EXECUTING!');
-
+const http = require('http');
+const { Server } = require('socket.io');
 const express = require('express');
 const path = require('path');
 const bcrypt = require('bcryptjs');
@@ -24,6 +24,63 @@ const swapRoutes = require('./routes/swapRoutes');
 const compression = require('compression');
 
 const app = express();
+
+// Create HTTP server & Socket.IO instance
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: process.env.CORS_ORIGIN || [
+      'https://hostel-frontend-5k7l.onrender.com',
+      'http://localhost:5173',
+      'http://localhost:3000'
+    ],
+    methods: ['GET', 'POST'],
+    credentials: true,
+  },
+});
+
+// ============= WEBSOCKET LOGIC =============
+io.on('connection', (socket) => {
+  console.log(`✅ WebSocket connected: ${socket.id}`);
+
+  // Student joins a floor channel (so they only get updates for their floor)
+  socket.on('join-floor', (floorId) => {
+    if (floorId) {
+      socket.join(`floor:${floorId}`);
+      console.log(`📌 Socket ${socket.id} joined floor: ${floorId}`);
+    }
+  });
+
+  // Student leaves floor channel (cleanup)
+  socket.on('leave-floor', (floorId) => {
+    if (floorId) {
+      socket.leave(`floor:${floorId}`);
+      console.log(`📌 Socket ${socket.id} left floor: ${floorId}`);
+    }
+  });
+
+  socket.on('disconnect', () => {
+    console.log(`❌ WebSocket disconnected: ${socket.id}`);
+  });
+});
+
+// ============= BROADCAST HELPER FUNCTION =============
+// This will be used in controllers to push updates to all clients on a floor
+const broadcastRoomUpdate = (floorId, roomId, status, currentOccupancy) => {
+  if (io && floorId) {
+    io.to(`floor:${floorId}`).emit('room-update', {
+      roomId,
+      status,
+      currentOccupancy,
+      timestamp: new Date().toISOString(),
+    });
+    console.log(`📡 Broadcasted room update for Room ${roomId} on Floor ${floorId}`);
+  }
+};
+
+// Expose io and broadcast function globally (for use in controllers)
+app.set('io', io);
+app.set('broadcastRoomUpdate', broadcastRoomUpdate);
 
 // Enable trust proxy
 app.set('trust proxy', process.env.TRUST_PROXY === 'true' || process.env.NODE_ENV === 'production' ? 1 : 0);
@@ -254,7 +311,7 @@ async function startServer() {
     const PORT = env.port || 5000;
     const HOST = process.env.HOST || '0.0.0.0';
     console.log(`🚀 Attempting to listen on ${HOST}:${PORT}`);
-    app.listen(PORT, HOST, () => {
+    server.listen(PORT, HOST, () => {
       console.log(`[Server] IIT Hostel Booking API running on ${HOST}:${PORT}`);
     });
   } catch (err) {
@@ -267,3 +324,4 @@ if (require.main === module) {
 }
 
 module.exports = app;
+

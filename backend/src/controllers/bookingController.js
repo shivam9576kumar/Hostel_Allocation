@@ -11,7 +11,7 @@ function getLockOption(t) {
 }
 
 // Helper: Shared Room Pairing Execution Engine
-async function executeRoomPairing({ room, studentB, code, transaction, hostel }) {
+async function executeRoomPairing({ room, studentB, code, transaction, hostel, req }) {
   const now = new Date();
 
   // 1. Get existing bookings in this room
@@ -81,6 +81,12 @@ async function executeRoomPairing({ room, studentB, code, transaction, hostel })
 
     await transaction.commit();
 
+    // Broadcast WebSocket room status update
+    const broadcastRoomUpdate = req?.app?.get('broadcastRoomUpdate');
+    if (broadcastRoomUpdate && room.floor_id) {
+      broadcastRoomUpdate(room.floor_id, room.room_id, 'Locked', newOccupancy);
+    }
+
     // Clear Redis keys
     try {
       if (redisClient && typeof redisClient.del === 'function') {
@@ -133,6 +139,12 @@ async function executeRoomPairing({ room, studentB, code, transaction, hostel })
     });
 
     await transaction.commit();
+
+    // Broadcast WebSocket room status update
+    const broadcastRoomUpdate = req?.app?.get('broadcastRoomUpdate');
+    if (broadcastRoomUpdate && room.floor_id) {
+      broadcastRoomUpdate(room.floor_id, room.room_id, 'Pending_Pairing', newOccupancy);
+    }
 
     return {
       result: {
@@ -264,6 +276,12 @@ async function bookRoom(req, res) {
 
       await transaction.commit();
 
+      // Broadcast WebSocket room status update
+      const broadcastRoomUpdate = req.app.get('broadcastRoomUpdate');
+      if (broadcastRoomUpdate && room.floor_id) {
+        broadcastRoomUpdate(room.floor_id, room.room_id, 'Locked', 1);
+      }
+
       try {
         await pdfQueue.add('generate', {
           roomId: room.room_id,
@@ -342,6 +360,12 @@ async function bookRoom(req, res) {
     });
 
     await transaction.commit();
+
+    // Broadcast WebSocket room status update
+    const broadcastRoomUpdate = req.app.get('broadcastRoomUpdate');
+    if (broadcastRoomUpdate && room.floor_id) {
+      broadcastRoomUpdate(room.floor_id, room.room_id, 'Pending_Pairing', 1);
+    }
 
     // 8. Store in Redis key room:code:{roomId} and code:{pairingCode} with 600s TTL
     try {
@@ -479,7 +503,7 @@ async function pairRoom(req, res) {
       }
     }
 
-    const outcome = await executeRoomPairing({ room, studentB, code, transaction, hostel });
+    const outcome = await executeRoomPairing({ room, studentB, code, transaction, hostel, req });
     if (outcome.error) {
       return res.status(outcome.status || 400).json({ error: outcome.error });
     }
@@ -626,7 +650,7 @@ async function pairByCode(req, res) {
       }
     }
 
-    const outcome = await executeRoomPairing({ room, studentB, code: cleanCode, transaction, hostel });
+    const outcome = await executeRoomPairing({ room, studentB, code: cleanCode, transaction, hostel, req });
     if (outcome.error) {
       return res.status(outcome.status || 400).json({ error: outcome.error });
     }
