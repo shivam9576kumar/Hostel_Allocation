@@ -5,8 +5,8 @@ const rateLimit = require('express-rate-limit');
  * This prevents campus Wi-Fi (shared IP) from blocking all students.
  */
 const studentRateLimiter = rateLimit({
-  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || 60000, 10), // 1 minute
-  max: parseInt(process.env.RATE_LIMIT_MAX || 1000, 10), // 1000 requests per minute per student
+  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || 60000, 10),
+  max: parseInt(process.env.RATE_LIMIT_MAX || 1000, 10),
 
   // KEY CHANGE: Use roll_number instead of IP
   keyGenerator: (req) => {
@@ -17,6 +17,9 @@ const studentRateLimiter = rateLimit({
     // Fallback to IP for unauthenticated routes (e.g., login)
     return req.ip || req.headers['x-forwarded-for'] || 'unknown';
   },
+
+  // Disable strict IP format validation to allow custom roll_number/email keys safely
+  validate: false,
 
   handler: (req, res) => {
     return res.status(429).json({
@@ -30,9 +33,9 @@ const studentRateLimiter = rateLimit({
   legacyHeaders: false,
 
   skip: (req) => {
-    // Skip rate limiting for health checks and login
     return (
       req.path === '/health' ||
+      req.path === '/api/health' ||
       req.path === '/api/students/login' ||
       req.path === '/api/admin/login' ||
       req.path === '/api/students/register'
@@ -44,12 +47,16 @@ const studentRateLimiter = rateLimit({
 const adminRateLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 200,
+
   keyGenerator: (req) => {
     if (req.admin?.email || req.user?.email) {
       return `admin:${req.admin?.email || req.user?.email}`;
     }
-    return req.ip || 'unknown';
+    return req.ip || req.headers['x-forwarded-for'] || 'unknown';
   },
+
+  validate: false,
+
   handler: (req, res) => {
     return res.status(429).json({
       success: false,
