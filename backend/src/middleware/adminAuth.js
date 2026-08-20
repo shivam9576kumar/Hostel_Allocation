@@ -2,20 +2,28 @@ const jwt = require('jsonwebtoken');
 const env = require('../config/env');
 
 const adminAuth = (req, res, next) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Unauthorized: Missing or invalid token header.' });
+  let token = req.cookies?.accessToken || req.cookies?.adminToken;
+  if (!token && req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
+    token = req.headers.authorization.split(' ')[1];
   }
 
-  const token = authHeader.split(' ')[1];
+  if (!token) {
+    return res.status(401).json({ error: 'Unauthorized: Missing or invalid token.' });
+  }
+
   try {
-    const decoded = jwt.verify(token, env.jwtSecret);
-    if (!decoded || decoded.type !== 'admin') {
+    const accessSecret = process.env.JWT_ACCESS_SECRET || env.jwtSecret;
+    const decoded = jwt.verify(token, accessSecret);
+    if (!decoded || (decoded.type && decoded.type !== 'admin' && !['Admin', 'Super Admin', 'admin', 'super_admin'].includes(decoded.role))) {
       return res.status(403).json({ error: 'Forbidden: Admin access required.' });
     }
     req.admin = decoded;
+    req.user = decoded;
     next();
   } catch (err) {
+    if (err.name === 'TokenExpiredError') {
+      return res.status(401).json({ error: 'Session expired. Please re-authenticate.', code: 'TOKEN_EXPIRED' });
+    }
     return res.status(401).json({ error: 'Unauthorized: Invalid or expired token.' });
   }
 };

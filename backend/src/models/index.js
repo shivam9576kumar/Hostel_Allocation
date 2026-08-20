@@ -24,6 +24,14 @@ const Admin = sequelize.define('Admin', {
     type: DataTypes.STRING(20),
     defaultValue: 'Admin'
   },
+  mfa_secret: {
+    type: DataTypes.STRING(255),
+    allowNull: true
+  },
+  mfa_enabled: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false
+  },
   created_at: {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW
@@ -501,6 +509,8 @@ const PDFHistory = sequelize.define('PDFHistory', {
   underscored: true
 });
 
+const RefreshToken = require('./RefreshToken')(sequelize);
+
 // Define Associations
 Hostel.hasMany(Block, { foreignKey: 'hostel_id', onDelete: 'CASCADE' });
 Block.belongsTo(Hostel, { foreignKey: 'hostel_id' });
@@ -559,5 +569,6 @@ module.exports = {
   SwapRequest,
   PDFHistory,
   AllocationRule,
-  GlobalSetting
+  GlobalSetting,
+  RefreshToken
 };

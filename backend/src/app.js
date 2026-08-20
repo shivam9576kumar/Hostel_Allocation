@@ -12,11 +12,13 @@ const { initSwapExpiryJob } = require('./jobs/swapExpiry');
 const { parseAndInsertStudents } = require('./utils/csvParser');
 const { studentRateLimiter, adminRateLimiter } = require('./middleware/rateLimiter');
 
-// Import Health Routes
+const cookieParser = require('cookie-parser');
+
 const healthRoutes = require('./routes/health');
 console.log('✅ healthRoutes imported:', typeof healthRoutes, healthRoutes);
 
 const authRoutes = require('./routes/authRoutes');
+const mfaRoutes = require('./routes/mfaRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const studentRoutes = require('./routes/studentRoutes');
 const swapRoutes = require('./routes/swapRoutes');
@@ -63,9 +65,11 @@ app.use(cors({
 // Enable HTTP response compression (reduces payload by 60-80%)
 app.use(compression());
 
-// Body parsers
+// Body parsers & Cookie parser
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser());
+console.log('✅ [IAM] HttpOnly cookie parser initialized.');
 
 // ============= HEALTH CHECK =============
 console.log('✅ Registering /ping route');
@@ -115,6 +119,8 @@ try {
 
 // Route Registrations
 app.use('/api', authRoutes);
+app.use('/api/auth', authRoutes);
+app.use('/api/mfa', mfaRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/student', studentRoutes);
 app.use('/api', swapRoutes);
