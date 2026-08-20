@@ -8,17 +8,15 @@ const studentRateLimiter = rateLimit({
   windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || 60000, 10),
   max: parseInt(process.env.RATE_LIMIT_MAX || 1000, 10),
 
-  // KEY CHANGE: Use roll_number instead of IP
+  // Key generator using roll number
   keyGenerator: (req) => {
-    // If student is logged in, use roll_number
     if (req.student?.roll_number || req.user?.roll_number) {
       return `student:${req.student?.roll_number || req.user?.roll_number}`;
     }
-    // Fallback to IP for unauthenticated routes (e.g., login)
     return req.ip || req.headers['x-forwarded-for'] || 'unknown';
   },
 
-  // Disable strict IP format validation to allow custom roll_number/email keys safely
+  // ✅ CRITICAL FIX: Disable IPv6 validation (since we use custom keys)
   validate: false,
 
   handler: (req, res) => {
@@ -55,6 +53,7 @@ const adminRateLimiter = rateLimit({
     return req.ip || req.headers['x-forwarded-for'] || 'unknown';
   },
 
+  // ✅ CRITICAL FIX: Disable IPv6 validation
   validate: false,
 
   handler: (req, res) => {
