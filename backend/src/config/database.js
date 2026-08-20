@@ -36,6 +36,15 @@ const sequelize = new Sequelize(connectionString, {
     ssl: process.env.DB_SSL === 'true' || process.env.NODE_ENV === 'production' ? { require: true, rejectUnauthorized: false } : false,
   },
   logging: process.env.NODE_ENV === 'development' ? console.log : false,
+  hooks: {
+    beforeQuery: (options) => {
+      if (options.type === 'SELECT' && options.replacements === undefined && options.sql) {
+        if (process.env.NODE_ENV === 'production') {
+          console.warn('⚠️ Raw SQL query detected without replacements. Ensure parameters are properly bound.');
+        }
+      }
+    }
+  },
   retry: {
     max: 3,
     match: [

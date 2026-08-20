@@ -126,7 +126,11 @@ try {
   console.warn('[App] PDF Worker initialization warning:', workerErr.message);
 }
 
-// Route Registrations
+const { csrfProtection } = require('./middleware/csrf');
+const errorHandler = require('./middleware/errorHandler');
+
+// Route Registrations (with CSRF Double-Submit Protection)
+app.use('/api', csrfProtection);
 app.use('/api', authRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/mfa', mfaRoutes);
@@ -149,13 +153,8 @@ if (app._router && app._router.stack) {
   });
 }
 
-// Global Error Handler
-app.use((err, req, res, next) => {
-  console.error('[Global Error Handler]:', err.stack || err);
-  res.status(err.status || 500).json({
-    error: err.message || 'Internal Server Error'
-  });
-});
+// Production-Safe Global Error Handler (Prevents stack trace leaks)
+app.use(errorHandler);
 
 // Auto-seed admins, students, and default active hostels
 async function autoSeedIfEmpty() {
