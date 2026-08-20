@@ -41,7 +41,17 @@ app.use(cors({
 // Enable HTTP response compression (reduces payload by 60-80%)
 app.use(compression());
 
-// ============= HEALTH CHECK =============
+// Body parsers
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// ============= HARDCODED HEALTH CHECK (FOR DIAGNOSTICS) =============
+app.get('/ping', (req, res) => {
+  res.json({ status: 'ok', message: 'Server is reachable' });
+});
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', message: 'Hardcoded health check works!' });
+});
 app.use('/health', healthRoutes);
 app.use('/api/health', healthRoutes);
 
@@ -51,10 +61,6 @@ app.use('/api/student', studentRateLimiter);
 app.use('/api/booking', studentRateLimiter);
 app.use('/api/swap', studentRateLimiter);
 app.use('/api/admin', adminRateLimiter);
-
-// Body parsers
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 
 // Bull-Board Queue Monitoring Dashboard Setup
 try {
