@@ -67,15 +67,10 @@ app.use(compression());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// ============= HARDCODED HEALTH CHECK (FOR DIAGNOSTICS) =============
+// ============= HEALTH CHECK =============
 console.log('✅ Registering /ping route');
 app.get('/ping', (req, res) => {
   res.json({ status: 'ok', message: 'Server is reachable' });
-});
-
-console.log('✅ Registering /health route');
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok', message: 'Hardcoded health check works!' });
 });
 
 console.log('✅ Registering healthRoutes');
