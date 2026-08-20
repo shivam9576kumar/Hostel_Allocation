@@ -1,7 +1,12 @@
 const crypto = require('crypto');
 
 const csrfProtection = (req, res, next) => {
-  // For GET/HEAD/OPTIONS safe requests, set CSRF cookie if not present
+  // 🔴 SKIP CSRF FOR LOGIN ENDPOINTS (Temporary bypass for demo)
+  if (req.path === '/api/admin/login' || req.path === '/api/students/login' || req.path.endsWith('/login')) {
+    return next();
+  }
+
+  // For GET/HEAD/OPTIONS, skip CSRF checks (they are safe)
   if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
     if (!req.cookies?.csrfToken) {
       const token = crypto.randomBytes(32).toString('hex');
@@ -19,6 +24,7 @@ const csrfProtection = (req, res, next) => {
     return next();
   }
 
+  // For state-changing methods (POST/PUT/DELETE), validate the token
   const clientToken = req.headers['x-csrf-token'] || req.headers['x-xsrf-token'];
   const serverToken = req.cookies?.csrfToken;
 
