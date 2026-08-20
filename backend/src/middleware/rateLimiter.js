@@ -1,14 +1,10 @@
 const rateLimit = require('express-rate-limit');
 
-/**
- * Rate limiter using Student Roll Number (from JWT) as the key.
- * This prevents campus Wi-Fi (shared IP) from blocking all students.
- */
+// Student rate limiter (using roll number)
 const studentRateLimiter = rateLimit({
   windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || 60000, 10),
   max: parseInt(process.env.RATE_LIMIT_MAX || 1000, 10),
 
-  // Key generator using roll number
   keyGenerator: (req) => {
     if (req.student?.roll_number || req.user?.roll_number) {
       return `student:${req.student?.roll_number || req.user?.roll_number}`;
