@@ -36,7 +36,20 @@ app.use((req, res, next) => {
 
 // Fix for "Cannot GET /"
 app.get('/', (req, res) => {
-  res.send('<h1>Hostel Backend API is deployed and running!</h1>');
+  res.json({
+    success: true,
+    name: 'Hostel Booking Backend API',
+    version: '1.0.0',
+    status: 'operational',
+    timestamp: new Date().toISOString(),
+    endpoints: {
+      health: '/health',
+      api: '/api',
+      adminLogin: '/api/admin/login',
+      studentLogin: '/api/students/login',
+      docs: 'https://github.com/shivam9576kumar/Hostel_Allocation'
+    }
+  });
 });
 
 // 1. CORS Middleware (Must be FIRST before any rate limit or routes so error responses include CORS headers)
