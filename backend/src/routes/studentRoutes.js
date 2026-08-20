@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const rateLimit = require('express-rate-limit');
 const studentAuth = require('../middleware/auth');
+const { pairCodeLimiter } = require('../middleware/rateLimiter');
 const {
   getStudentDashboard,
   getEligibleHostels,
@@ -44,8 +45,8 @@ router.get('/floors/:floorId/rooms', getFloorRooms);
 router.get('/room/:roomId/occupants', getRoomOccupants);
 router.post('/rooms/:roomId/book', bookingLimiter, bookRoom);
 router.post('/book-single', bookingLimiter, bookSingleSeater);
-router.post('/rooms/:roomId/pair', bookingLimiter, pairRoom);
-router.post('/pair-by-code', bookingLimiter, pairByCode);
+router.post('/rooms/:roomId/pair', pairCodeLimiter, pairRoom);
+router.post('/pair-by-code', pairCodeLimiter, pairByCode);
 router.get('/pdf', downloadAllocationPDF);
 
 module.exports = router;

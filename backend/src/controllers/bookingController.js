@@ -292,6 +292,29 @@ async function bookRoom(req, res) {
     const pairingCode = generatePairingCode();
     const expiryTime = new Date(now.getTime() + 10 * 60 * 1000); // +10 mins
 
+    // 4b. Execute Atomic Room Lock via Redis Lua script
+    try {
+      if (redisClient && typeof redisClient.eval === 'function') {
+        const lockLuaScript = `
+          local lock_key = KEYS[1]
+          local is_locked = redis.call('SETNX', lock_key, ARGV[1])
+          if is_locked == 1 then
+              redis.call('EXPIRE', lock_key, ARGV[2])
+              return 1
+          else
+              return 0
+          end
+        `;
+        const lockRes = await redisClient.eval(lockLuaScript, 1, `room:lock:${room.room_id}`, pairingCode, 600);
+        if (lockRes === 0) {
+          if (!transaction.finished) await transaction.rollback();
+          return res.status(409).json({ error: 'Room is currently being booked by another student.' });
+        }
+      }
+    } catch (redisLockErr) {
+      console.warn('[Redis Lock Warning]:', redisLockErr.message);
+    }
+
     // 5. Update room state to Pending_Pairing
     await room.update({
       status: 'Pending_Pairing',

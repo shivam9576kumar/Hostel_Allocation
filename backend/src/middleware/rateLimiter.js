@@ -12,7 +12,6 @@ const studentRateLimiter = rateLimit({
     return req.ip || req.headers['x-forwarded-for'] || 'unknown';
   },
 
-  // ✅ CRITICAL FIX: Disable IPv6 validation (since we use custom keys)
   validate: false,
 
   handler: (req, res) => {
@@ -49,7 +48,6 @@ const adminRateLimiter = rateLimit({
     return req.ip || req.headers['x-forwarded-for'] || 'unknown';
   },
 
-  // ✅ CRITICAL FIX: Disable IPv6 validation
   validate: false,
 
   handler: (req, res) => {
@@ -60,4 +58,21 @@ const adminRateLimiter = rateLimit({
   },
 });
 
-module.exports = { studentRateLimiter, adminRateLimiter };
+// Layer 1 Defense: Prevents brute-forcing 1M 6-digit pairing codes
+const pairCodeLimiter = rateLimit({
+  windowMs: parseInt(process.env.PAIRING_WINDOW_MS || 600000, 10), // 10 mins
+  max: parseInt(process.env.PAIRING_MAX_ATTEMPTS || 10, 10),       // 10 attempts
+  keyGenerator: (req) => {
+    const roomId = req.params?.roomId || req.body?.roomId || 'global';
+    const identifier = req.student?.roll_number || req.user?.roll_number || req.ip;
+    return `bruteforce:code:${roomId}:${identifier}`;
+  },
+  validate: false,
+  handler: (req, res) => {
+    return res.status(429).json({
+      error: 'Too many pairing attempts for this room. Please wait 10 minutes.'
+    });
+  }
+});
+
+module.exports = { studentRateLimiter, adminRateLimiter, pairCodeLimiter };

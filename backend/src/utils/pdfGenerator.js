@@ -1,6 +1,7 @@
 const PDFDocument = require('pdfkit');
 const fs = require('fs');
 const path = require('path');
+const { sanitizePdfText } = require('./pdfSanitizer');
 
 async function generateAllocationPDF({
   hostelName,
@@ -29,9 +30,13 @@ async function generateAllocationPDF({
     allRoommates.push(student3);
   }
 
-  const rollA = student1.roll_number.replace(/[^a-zA-Z0-9]/g, '');
+  const rollA = sanitizePdfText(student1.roll_number).replace(/[^a-zA-Z0-9]/g, '');
   const fileName = `allocation_${rollA}_v${version}.pdf`;
   const filePath = path.join(pdfsDir, fileName);
+
+  const cleanHostel = sanitizePdfText(hostelName);
+  const cleanBlock = sanitizePdfText(blockName);
+  const cleanRoom = sanitizePdfText(roomNumber);
 
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'A4', margin: 40 });
@@ -76,14 +81,14 @@ async function generateAllocationPDF({
     // Key-Value Grid Helper
     function addRow(label, value, y, labelWidth = 130) {
       doc.fontSize(10).font('Helvetica-Bold').fillColor('#475569').text(label, 55, y);
-      doc.fontSize(10).font('Helvetica').fillColor('#0f172a').text(value || 'N/A', 55 + labelWidth, y);
+      doc.fontSize(10).font('Helvetica').fillColor('#0f172a').text(sanitizePdfText(value) || 'N/A', 55 + labelWidth, y);
     }
 
     let currentY = boxTop + 40;
-    addRow('Hostel Name:', hostelName, currentY); currentY += 18;
-    addRow('Block Name:', blockName, currentY); currentY += 18;
+    addRow('Hostel Name:', cleanHostel, currentY); currentY += 18;
+    addRow('Block Name:', cleanBlock, currentY); currentY += 18;
     addRow('Floor Number:', `Floor ${floorNumber}`, currentY); currentY += 18;
-    addRow('Room Number:', `Room ${roomNumber}`, currentY); currentY += 18;
+    addRow('Room Number:', `Room ${cleanRoom}`, currentY); currentY += 18;
     addRow('Allocation Date:', new Date(allocationDate).toLocaleString(), currentY); currentY += 24;
 
     doc.moveTo(55, currentY).lineTo(doc.page.width - 55, currentY).strokeColor('#e2e8f0').stroke();

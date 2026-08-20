@@ -47,6 +47,47 @@ class MemoryRedisFallback {
   async ping() {
     return 'PONG';
   }
+
+  async eval(script, numkeys, key, arg1, arg2) {
+    if (key && key.startsWith('room:lock:')) {
+      if (!this.store.has(key)) {
+        this.store.set(key, arg1 || 'locked');
+        if (arg2) {
+          if (this.ttls.has(key)) clearTimeout(this.ttls.get(key));
+          const timer = setTimeout(() => {
+            this.store.delete(key);
+            this.ttls.delete(key);
+          }, parseInt(arg2, 10) * 1000);
+          this.ttls.set(key, timer);
+        }
+        return 1;
+      }
+      return 0;
+    }
+    return 1;
+  }
+
+  async script(action, content) {
+    return 'sha_dummy_hash';
+  }
+
+  async evalSha(sha, numkeys, key, arg1, arg2) {
+    return this.eval('', numkeys, key, arg1, arg2);
+  }
+
+  async call(...args) {
+    const cmd = (args[0] || '').toLowerCase();
+    if (cmd === 'setnx') {
+      const key = args[1];
+      const val = args[2];
+      if (!this.store.has(key)) {
+        this.store.set(key, val);
+        return 1;
+      }
+      return 0;
+    }
+    return 'OK';
+  }
 }
 
 let redisClient;
