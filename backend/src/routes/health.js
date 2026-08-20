@@ -3,7 +3,7 @@ const router = express.Router();
 const sequelize = require('../config/database');
 const redis = require('../config/redis');
 
-router.get('/', async (req, res) => {
+async function handleHealthCheck(req, res) {
   const health = {
     status: 'ok',
     timestamp: new Date().toISOString(),
@@ -39,6 +39,10 @@ router.get('/', async (req, res) => {
 
   const statusCode = health.status === 'ok' ? 200 : 503;
   res.status(statusCode).json(health);
-});
+}
+
+router.get('/', handleHealthCheck);
+router.get('/health', handleHealthCheck);
 
 module.exports = router;
+module.exports.handleHealthCheck = handleHealthCheck;
