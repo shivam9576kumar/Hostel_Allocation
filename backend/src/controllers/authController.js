@@ -72,23 +72,24 @@ async function adminLogin(req, res) {
       return res.status(401).json({ error: 'Invalid admin credentials.' });
     }
 
-    // Validate MFA if Admin has mfa_enabled or env MFA_ENABLED=true
-    if (admin.mfa_enabled || process.env.MFA_ENABLED === 'true') {
-      if (!admin.mfa_secret) {
-        return res.status(403).json({ error: 'MFA not set up for this admin account.' });
-      }
-      if (!mfaCode) {
-        return res.status(403).json({ error: 'MFA code required for admin account.', requireMfa: true });
-      }
-      const verified = speakeasy.totp.verify({
-        secret: admin.mfa_secret,
-        encoding: 'base32',
-        token: String(mfaCode).trim()
-      });
-      if (!verified) {
-        return res.status(401).json({ error: 'Invalid MFA code.' });
-      }
-    }
+    // ---------- MFA CHECK (TEMPORARILY COMMENTED OUT FOR DEMO) ----------
+    // if (admin.mfa_enabled || process.env.MFA_ENABLED === 'true') {
+    //   if (!admin.mfa_secret) {
+    //     return res.status(403).json({ error: 'MFA not set up for this admin account.' });
+    //   }
+    //   if (!mfaCode) {
+    //     return res.status(403).json({ error: 'MFA code required for admin account.', requireMfa: true });
+    //   }
+    //   const verified = speakeasy.totp.verify({
+    //     secret: admin.mfa_secret,
+    //     encoding: 'base32',
+    //     token: String(mfaCode).trim()
+    //   });
+    //   if (!verified) {
+    //     return res.status(401).json({ error: 'Invalid MFA code.' });
+    //   }
+    // }
+    // ✅ MFA CHECK BYPASSED - Login allowed without MFA.
 
     const tokens = await issueSessionTokens(req, res, {
       userId: admin.id,
