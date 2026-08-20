@@ -208,7 +208,8 @@ app.use(errorHandler);
 // Auto-seed admins, students, and default active hostels
 async function autoSeedIfEmpty() {
   try {
-    await sequelize.sync();
+    await sequelize.sync({ alter: true });
+    console.log('✅ Database schema synchronized ({ alter: true }).');
 
     // 1. Check Admins
     const adminCount = await Admin.count();
