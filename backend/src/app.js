@@ -36,6 +36,15 @@ app.use((req, res, next) => {
   next();
 });
 
+// HSTS & Security Headers Middleware (Layer 3 Encryption & Privacy)
+app.use((req, res, next) => {
+  res.setHeader('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  next();
+});
+
 // Fix for "Cannot GET /"
 app.get('/', (req, res) => {
   res.json({

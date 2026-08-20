@@ -1,5 +1,4 @@
-const { DataTypes } = require('sequelize');
-const sequelize = require('../config/database');
+const { encrypt, decrypt } = require('../utils/encryption');
 
 const Admin = sequelize.define('Admin', {
   id: {
@@ -12,7 +11,7 @@ const Admin = sequelize.define('Admin', {
     allowNull: false
   },
   email: {
-    type: DataTypes.STRING(100),
+    type: DataTypes.TEXT,
     allowNull: false,
     unique: true
   },
@@ -39,7 +38,28 @@ const Admin = sequelize.define('Admin', {
 }, {
   tableName: 'admins',
   timestamps: false,
-  underscored: true
+  underscored: true,
+  hooks: {
+    beforeCreate: (admin) => {
+      if (admin.email) admin.email = encrypt(admin.email);
+    },
+    beforeUpdate: (admin) => {
+      if (admin.changed('email') && admin.email) admin.email = encrypt(admin.email);
+    },
+    afterFind: async (instances) => {
+      if (!instances) return;
+      const items = Array.isArray(instances) ? instances : [instances];
+      for (const item of items) {
+        if (item && item.email) {
+          try {
+            item.dataValues.email = decrypt(item.dataValues.email);
+          } catch (e) {
+            item.dataValues.email = '[ENCRYPTED/ERROR]';
+          }
+        }
+      }
+    }
+  }
 });
 
 const Student = sequelize.define('Student', {
@@ -52,7 +72,7 @@ const Student = sequelize.define('Student', {
     allowNull: false
   },
   email: {
-    type: DataTypes.STRING(100),
+    type: DataTypes.TEXT,
     allowNull: false,
     unique: true
   },
@@ -107,7 +127,28 @@ const Student = sequelize.define('Student', {
 }, {
   tableName: 'students',
   timestamps: false,
-  underscored: true
+  underscored: true,
+  hooks: {
+    beforeCreate: (student) => {
+      if (student.email) student.email = encrypt(student.email);
+    },
+    beforeUpdate: (student) => {
+      if (student.changed('email') && student.email) student.email = encrypt(student.email);
+    },
+    afterFind: async (instances) => {
+      if (!instances) return;
+      const items = Array.isArray(instances) ? instances : [instances];
+      for (const item of items) {
+        if (item && item.email) {
+          try {
+            item.dataValues.email = decrypt(item.dataValues.email);
+          } catch (e) {
+            item.dataValues.email = '[ENCRYPTED/ERROR]';
+          }
+        }
+      }
+    }
+  }
 });
 
 const ProgramCode = sequelize.define('ProgramCode', {
