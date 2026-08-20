@@ -63,13 +63,45 @@ app.get('/', (req, res) => {
   });
 });
 
+const helmet = require('helmet');
+const corsConfig = require('./middleware/corsConfig');
+const { ipWhitelist } = require('./middleware/ipWhitelist');
+const {
+  publicLimiter,
+  studentReadLimiter,
+  studentWriteLimiter,
+  adminLimiter,
+  pairingBruteForceLimiter
+} = require('./middleware/rateLimiters');
+
+// 🔒 Network Fortification: Helmet with Strict CSP
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        baseUri: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", "data:"],
+        objectSrc: ["'none'"],
+        frameAncestors: ["'none'"],
+        upgradeInsecureRequests: [],
+      },
+    },
+    hsts: {
+      maxAge: 31536000,
+      includeSubDomains: true,
+      preload: true,
+    },
+    frameguard: { action: 'deny' },
+    referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+  })
+);
+console.log('✅ [Security] Helmet CSP & HSTS enabled.');
+
 // 1. CORS Middleware (Must be FIRST before any rate limit or routes so error responses include CORS headers)
-app.use(cors({
-  origin: true, // Dynamically mirror request origin for localhost / local IP testing
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept']
-}));
+app.use(corsConfig);
 
 // Enable HTTP response compression (reduces payload by 60-80%)
 app.use(compression());
@@ -80,6 +112,9 @@ app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 console.log('✅ [IAM] HttpOnly cookie parser initialized.');
 
+// IP Whitelisting for Admin endpoints (Optional)
+app.use(ipWhitelist);
+
 // ============= HEALTH CHECK =============
 console.log('✅ Registering /ping route');
 app.get('/ping', (req, res) => {
@@ -87,15 +122,17 @@ app.get('/ping', (req, res) => {
 });
 
 console.log('✅ Registering healthRoutes');
-app.use('/health', healthRoutes);
-app.use('/api/health', healthRoutes);
+app.use('/health', publicLimiter, healthRoutes);
+app.use('/api/health', publicLimiter, healthRoutes);
 
-// Apply rate limiters
-app.use('/api/students', studentRateLimiter);
-app.use('/api/student', studentRateLimiter);
-app.use('/api/booking', studentRateLimiter);
-app.use('/api/swap', studentRateLimiter);
-app.use('/api/admin', adminRateLimiter);
+// Apply Granular Rate Limiters
+app.use('/api/admin', adminLimiter);
+app.use('/api/student', studentReadLimiter);
+app.use('/api/students', studentReadLimiter);
+app.use('/api/student/rooms/*/book', studentWriteLimiter);
+app.use('/api/student/book-single', studentWriteLimiter);
+app.use('/api/student/rooms/*/pair', pairingBruteForceLimiter);
+app.use('/api/student/pair-by-code', pairingBruteForceLimiter);
 
 // Bull-Board Queue Monitoring Dashboard Setup
 try {
