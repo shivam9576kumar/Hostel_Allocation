@@ -1,3 +1,5 @@
+console.log('🚀 APP.JS IS EXECUTING!');
+
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
@@ -12,6 +14,7 @@ const { studentRateLimiter, adminRateLimiter } = require('./middleware/rateLimit
 
 // Import Health Routes
 const healthRoutes = require('./routes/health');
+console.log('✅ healthRoutes imported:', typeof healthRoutes, healthRoutes);
 
 const authRoutes = require('./routes/authRoutes');
 const adminRoutes = require('./routes/adminRoutes');
@@ -24,6 +27,12 @@ const app = express();
 
 // Enable trust proxy
 app.set('trust proxy', process.env.TRUST_PROXY === 'true' || process.env.NODE_ENV === 'production' ? 1 : 0);
+
+// Request logging middleware
+app.use((req, res, next) => {
+  console.log(`📨 Incoming request: ${req.method} ${req.url}`);
+  next();
+});
 
 // Fix for "Cannot GET /"
 app.get('/', (req, res) => {
@@ -46,12 +55,17 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // ============= HARDCODED HEALTH CHECK (FOR DIAGNOSTICS) =============
+console.log('✅ Registering /ping route');
 app.get('/ping', (req, res) => {
   res.json({ status: 'ok', message: 'Server is reachable' });
 });
+
+console.log('✅ Registering /health route');
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', message: 'Hardcoded health check works!' });
 });
+
+console.log('✅ Registering healthRoutes');
 app.use('/health', healthRoutes);
 app.use('/api/health', healthRoutes);
 
@@ -96,6 +110,21 @@ app.use('/api', authRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/student', studentRoutes);
 app.use('/api', swapRoutes);
+
+console.log('📋 Registered Routes:');
+if (app._router && app._router.stack) {
+  app._router.stack.forEach((layer) => {
+    if (layer.route) {
+      console.log(Object.keys(layer.route.methods).join(',').toUpperCase(), layer.route.path);
+    } else if (layer.name === 'router' && layer.handle && layer.handle.stack) {
+      layer.handle.stack.forEach((subLayer) => {
+        if (subLayer.route) {
+          console.log('  ->', Object.keys(subLayer.route.methods).join(',').toUpperCase(), subLayer.route.path);
+        }
+      });
+    }
+  });
+}
 
 // Global Error Handler
 app.use((err, req, res, next) => {
@@ -150,6 +179,7 @@ async function startServer() {
 
     const PORT = env.port || 5000;
     const HOST = process.env.HOST || '0.0.0.0';
+    console.log(`🚀 Attempting to listen on ${HOST}:${PORT}`);
     app.listen(PORT, HOST, () => {
       console.log(`[Server] IIT Hostel Booking API running on ${HOST}:${PORT}`);
     });
