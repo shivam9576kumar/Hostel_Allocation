@@ -10,6 +10,10 @@ const RoomGrid = ({ floorId, rooms: initialRooms = [], onSelectRoom, onRefresh }
   const [loading, setLoading] = useState(false);
   const [showPairModal, setShowPairModal] = useState(false);
   const [selectedPendingRoom, setSelectedPendingRoom] = useState(null);
+  const [stats, setStats] = useState({ total: 0, vacant: 0, pending: 0, full: 0, reserved: 0 });
+
+  const socket = useSocket();
+  const hasJoinedRoom = useRef(false);
 
   // Sync initialRooms prop updates into local state when provided from parent
   useEffect(() => {
@@ -19,18 +23,6 @@ const RoomGrid = ({ floorId, rooms: initialRooms = [], onSelectRoom, onRefresh }
     }
   }, [initialRooms]);
 
-  // Stats
-  const [stats, setStats] = useState({
-    total: 0,
-    vacant: 0,
-    pending: 0,
-    full: 0,
-    reserved: 0,
-  });
-
-  const socket = useSocket();
-  const hasJoinedRoom = useRef(false);
-
   // ========== FETCH ROOMS ==========
   const fetchRooms = async () => {
     if (!floorId) return;
@@ -38,10 +30,11 @@ const RoomGrid = ({ floorId, rooms: initialRooms = [], onSelectRoom, onRefresh }
       setLoading(true);
       const response = await getRooms(floorId);
       const roomData = response.data.rooms || [];
+      console.log('✅ Fetched rooms:', roomData.map(r => ({ id: r.room_id || r.id, status: r.status })));
       setRooms(roomData);
       calculateStats(roomData);
     } catch (error) {
-      console.error('Failed to fetch rooms:', error);
+      console.error('❌ Failed to fetch rooms:', error);
       toast.error('Failed to load rooms.');
     } finally {
       setLoading(false);
@@ -60,6 +53,7 @@ const RoomGrid = ({ floorId, rooms: initialRooms = [], onSelectRoom, onRefresh }
 
   // ========== HANDLE VACANT ROOM CLICK ==========
   const handleRoomSelect = (room) => {
+    console.log('🟢 Selected vacant room:', room.room_number);
     if (onSelectRoom) {
       onSelectRoom(room);
     } else {
@@ -67,8 +61,9 @@ const RoomGrid = ({ floorId, rooms: initialRooms = [], onSelectRoom, onRefresh }
     }
   };
 
-  // ========== HANDLE PENDING ROOM CLICK (JOIN PAIRING) ==========
+  // ========== HANDLE PENDING ROOM CLICK ==========
   const handleJoinPending = (room) => {
+    console.log('🟡 Opening pairing modal for room:', room.room_number);
     setSelectedPendingRoom(room);
     setShowPairModal(true);
   };
@@ -84,7 +79,10 @@ const RoomGrid = ({ floorId, rooms: initialRooms = [], onSelectRoom, onRefresh }
 
   // ========== WEBSOCKET LISTENER ==========
   useEffect(() => {
-    if (!socket) return;
+    if (!socket) {
+      console.warn('⚠️ Socket not connected yet.');
+      return;
+    }
 
     if (floorId && !hasJoinedRoom.current) {
       socket.emit('join-floor', floorId);
@@ -93,12 +91,15 @@ const RoomGrid = ({ floorId, rooms: initialRooms = [], onSelectRoom, onRefresh }
     }
 
     const handleRoomUpdate = (data) => {
-      console.log(`📡 Real-time update received:`, data);
+      console.log('📡 [SOCKET] Raw event received:', data);
 
       setRooms((prevRooms) => {
+        console.log('📡 [SOCKET] Current rooms before update:', prevRooms.map(r => ({ id: r.room_id || r.id, status: r.status })));
+
         const updatedRooms = prevRooms.map((room) => {
-          const currentId = room.room_id || room.id;
-          if (String(currentId) === String(data.roomId)) {
+          const roomId = room.room_id || room.id;
+          if (String(roomId) === String(data.roomId)) {
+            console.log(`📡 [SOCKET] Updating room ${room.room_number}: ${room.status} → ${data.status}`);
             return {
               ...room,
               status: data.status,
@@ -108,7 +109,7 @@ const RoomGrid = ({ floorId, rooms: initialRooms = [], onSelectRoom, onRefresh }
           return room;
         });
 
-        // Update stats AFTER rooms are updated
+        console.log('📡 [SOCKET] Rooms after update:', updatedRooms.map(r => ({ id: r.room_id || r.id, status: r.status })));
         calculateStats(updatedRooms);
         return updatedRooms;
       });
@@ -148,8 +149,8 @@ const RoomGrid = ({ floorId, rooms: initialRooms = [], onSelectRoom, onRefresh }
           <RoomCard
             key={room.room_id || room.id}
             room={room}
-            onSelect={handleRoomSelect}          // ✅ For Vacant rooms
-            onJoinPending={handleJoinPending}    // ✅ For Pending rooms
+            onSelect={handleRoomSelect}
+            onJoinPending={handleJoinPending}  // ✅ Enables the pending pairing modal
           />
         ))}
       </div>
