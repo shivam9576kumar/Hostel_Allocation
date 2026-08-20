@@ -1,51 +1,102 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useSocket } from '../../context/SocketContext';
+import RoomCard from './RoomCard';
 import PairCodeModal from './PairCodeModal';
-import { pairRoom, pairByCode } from '../../api/student';
+import { getRooms } from '../../api/student';
+import { toast } from 'react-hot-toast';
 
-const RoomGrid = React.memo(({ rooms: initialRooms = [], floorId: propFloorId, onSelectRoom, onRefresh }) => {
-  const [localRooms, setLocalRooms] = useState(initialRooms);
+const RoomGrid = ({ floorId, rooms: initialRooms = [], onSelectRoom, onRefresh }) => {
+  const [rooms, setRooms] = useState(initialRooms);
+  const [loading, setLoading] = useState(false);
   const [showPairModal, setShowPairModal] = useState(false);
   const [selectedPendingRoom, setSelectedPendingRoom] = useState(null);
-  const socket = useSocket();
-  const activeFloorRef = useRef(null);
 
-  // Sync initialRooms prop updates to local state
+  // Sync initialRooms prop updates into local state when provided from parent
   useEffect(() => {
-    setLocalRooms(initialRooms);
+    if (initialRooms && initialRooms.length > 0) {
+      setRooms(initialRooms);
+      calculateStats(initialRooms);
+    }
   }, [initialRooms]);
 
-  // Determine current floorId
-  const floorId = propFloorId || (localRooms.length > 0 ? localRooms[0].floor_id : null);
+  // Stats
+  const [stats, setStats] = useState({
+    total: 0,
+    vacant: 0,
+    pending: 0,
+    full: 0,
+    reserved: 0,
+  });
 
-  // Compute live statistics from localRooms state
-  const calculateStats = (roomList) => {
-    const total = roomList.length;
-    const vacant = roomList.filter(r => r.status === 'Vacant').length;
-    const pending = roomList.filter(r => r.status === 'Pending_Pairing' || r.status === 'Pending').length;
-    const full = roomList.filter(r => r.status === 'Full' || r.status === 'Locked').length;
-    const reserved = roomList.filter(r => r.is_reserved || r.status === 'Reserved').length;
-    return { total, vacant, pending, full, reserved };
+  const socket = useSocket();
+  const hasJoinedRoom = useRef(false);
+
+  // ========== FETCH ROOMS ==========
+  const fetchRooms = async () => {
+    if (!floorId) return;
+    try {
+      setLoading(true);
+      const response = await getRooms(floorId);
+      const roomData = response.data.rooms || [];
+      setRooms(roomData);
+      calculateStats(roomData);
+    } catch (error) {
+      console.error('Failed to fetch rooms:', error);
+      toast.error('Failed to load rooms.');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const stats = calculateStats(localRooms);
+  // ========== CALCULATE STATS ==========
+  const calculateStats = (roomList) => {
+    const total = roomList.length;
+    const vacant = roomList.filter((r) => r.status === 'Vacant').length;
+    const pending = roomList.filter((r) => r.status === 'Pending_Pairing' || r.status === 'Pending').length;
+    const full = roomList.filter((r) => r.status === 'Full' || r.status === 'Locked').length;
+    const reserved = roomList.filter((r) => r.status === 'Reserved' || r.is_reserved).length;
+    setStats({ total, vacant, pending, full, reserved });
+  };
 
-  // Real-time WebSocket floor subscription listener
+  // ========== HANDLE VACANT ROOM CLICK ==========
+  const handleRoomSelect = (room) => {
+    if (onSelectRoom) {
+      onSelectRoom(room);
+    } else {
+      toast.success(`Room ${room.room_number} selected!`);
+    }
+  };
+
+  // ========== HANDLE PENDING ROOM CLICK (JOIN PAIRING) ==========
+  const handleJoinPending = (room) => {
+    setSelectedPendingRoom(room);
+    setShowPairModal(true);
+  };
+
+  // ========== INITIAL FETCH ==========
   useEffect(() => {
-    if (!socket || !floorId) return;
+    if (floorId && (!initialRooms || initialRooms.length === 0)) {
+      fetchRooms();
+    } else if (initialRooms && initialRooms.length > 0) {
+      calculateStats(initialRooms);
+    }
+  }, [floorId]);
 
-    const floorChannelId = String(floorId);
+  // ========== WEBSOCKET LISTENER ==========
+  useEffect(() => {
+    if (!socket) return;
 
-    // Join room-specific floor channel
-    socket.emit('join-floor', floorChannelId);
-    activeFloorRef.current = floorChannelId;
-    console.log(`🟢 Joined floor channel: ${floorChannelId}`);
+    if (floorId && !hasJoinedRoom.current) {
+      socket.emit('join-floor', floorId);
+      hasJoinedRoom.current = true;
+      console.log(`🟢 Joined floor channel: ${floorId}`);
+    }
 
-    // Handle incoming room update from backend
     const handleRoomUpdate = (data) => {
-      console.log(`📡 Real-time room update received:`, data);
-      setLocalRooms((prevRooms) => {
-        return prevRooms.map((room) => {
+      console.log(`📡 Real-time update received:`, data);
+
+      setRooms((prevRooms) => {
+        const updatedRooms = prevRooms.map((room) => {
           const currentId = room.room_id || room.id;
           if (String(currentId) === String(data.roomId)) {
             return {
@@ -56,142 +107,51 @@ const RoomGrid = React.memo(({ rooms: initialRooms = [], floorId: propFloorId, o
           }
           return room;
         });
+
+        // Update stats AFTER rooms are updated
+        calculateStats(updatedRooms);
+        return updatedRooms;
       });
     };
 
     socket.on('room-update', handleRoomUpdate);
 
-    // Cleanup: Leave channel on floor change or unmount
     return () => {
       socket.off('room-update', handleRoomUpdate);
-      if (activeFloorRef.current) {
-        socket.emit('leave-floor', activeFloorRef.current);
-        console.log(`🔴 Left floor channel: ${activeFloorRef.current}`);
-        activeFloorRef.current = null;
+      if (floorId) {
+        socket.emit('leave-floor', floorId);
+        hasJoinedRoom.current = false;
+        console.log(`🔴 Left floor channel: ${floorId}`);
       }
     };
   }, [socket, floorId]);
 
-  if (!localRooms || localRooms.length === 0) {
-    return (
-      <div className="bg-white rounded-2xl p-8 text-center border border-slate-200 shadow-sm">
-        <h3 className="text-sm font-semibold text-slate-600">No Available Rooms Found</h3>
-        <p className="text-xs text-slate-400 mt-1">Select a floor from above to view the room grid.</p>
-      </div>
-    );
+  // ========== RENDER ==========
+  if (loading) {
+    return <div className="p-4 text-center text-slate-500 font-medium">Loading rooms...</div>;
   }
 
-  const visibleRooms = localRooms.filter(r => !r.is_reserved);
-
-  const handleJoinPending = (room) => {
-    setSelectedPendingRoom(room);
-    setShowPairModal(true);
-  };
-
-  const handleSubmitPairCode = async (code) => {
-    const roomId = selectedPendingRoom?.room_id || selectedPendingRoom?.id;
-    if (roomId) {
-      await pairRoom(roomId, code);
-    } else {
-      await pairByCode(code);
-    }
-    setShowPairModal(false);
-    setSelectedPendingRoom(null);
-    if (onRefresh) onRefresh();
-  };
-
   return (
-    <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200 space-y-4">
-      {/* Header & Instant Stats Bar */}
-      <div className="flex items-center justify-between pb-2 border-b border-slate-100 flex-wrap gap-2">
-        <div>
-          <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wider">
-            Floor Room Availability Grid
-          </h2>
-          <p className="text-xs text-slate-400 font-medium mt-0.5">
-            Click green room to book, yellow room to enter pairing code
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2 text-xs font-semibold flex-wrap">
-          <span className="px-2.5 py-1 bg-slate-100 text-slate-700 rounded-lg border border-slate-200">
-            Total: {stats.total}
-          </span>
-          <span className="px-2.5 py-1 bg-green-50 text-green-700 rounded-lg border border-green-200">
-            Vacant: {stats.vacant}
-          </span>
-          <span className="px-2.5 py-1 bg-yellow-50 text-yellow-700 rounded-lg border border-yellow-200">
-            Pending: {stats.pending}
-          </span>
-          <span className="px-2.5 py-1 bg-red-50 text-red-700 rounded-lg border border-red-200">
-            Full: {stats.full}
-          </span>
-        </div>
+    <div className="p-4 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-4">
+      {/* Stats Bar */}
+      <div className="flex flex-wrap gap-2 text-xs font-semibold pb-2 border-b border-slate-100">
+        <span className="px-3 py-1 bg-slate-100 text-slate-700 rounded-lg border border-slate-200">Total: {stats.total}</span>
+        <span className="px-3 py-1 bg-green-50 text-green-700 rounded-lg border border-green-200">Vacant: {stats.vacant}</span>
+        <span className="px-3 py-1 bg-yellow-50 text-yellow-700 rounded-lg border border-yellow-200">Pending: {stats.pending}</span>
+        <span className="px-3 py-1 bg-red-50 text-red-700 rounded-lg border border-red-200">Full: {stats.full}</span>
+        {stats.reserved > 0 && <span className="px-3 py-1 bg-blue-50 text-blue-700 rounded-lg border border-blue-200">Reserved: {stats.reserved}</span>}
       </div>
 
-      {/* Grid of Rooms */}
+      {/* Rooms Grid */}
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-        {visibleRooms.map((room) => {
-          const isVacant = room.status === 'Vacant';
-          const isPending = room.status === 'Pending_Pairing' || room.status === 'Pending';
-          const isLocked = room.status === 'Locked' || room.status === 'Full';
-
-          let bgColor = 'bg-slate-50';
-          let textColor = 'text-slate-600';
-          let borderColor = 'border-slate-200';
-          let hoverClass = '';
-          let disabledClass = 'cursor-default';
-
-          if (isVacant) {
-            bgColor = 'bg-green-50';
-            textColor = 'text-green-800';
-            borderColor = 'border-green-300';
-            hoverClass = 'hover:border-green-500 hover:shadow-md';
-            disabledClass = 'cursor-pointer';
-          } else if (isPending) {
-            bgColor = 'bg-yellow-50';
-            textColor = 'text-yellow-800';
-            borderColor = 'border-yellow-300';
-            hoverClass = 'hover:border-yellow-500 hover:shadow-md';
-            disabledClass = 'cursor-pointer';
-          } else if (isLocked) {
-            bgColor = 'bg-red-50';
-            textColor = 'text-red-800';
-            borderColor = 'border-red-300';
-            disabledClass = 'cursor-not-allowed';
-          }
-
-          return (
-            <div
-              key={room.room_id || room.id}
-              onClick={() => {
-                if (isVacant && onSelectRoom) onSelectRoom(room);
-                else if (isPending) handleJoinPending(room);
-              }}
-              className={`relative flex items-center justify-center h-20 rounded-xl border-2 ${bgColor} ${borderColor} ${textColor} font-bold text-lg ${hoverClass} ${disabledClass} transition select-none`}
-            >
-              {room.room_number}
-
-              {isPending && (
-                <span className="absolute top-1.5 right-1.5 text-[10px] bg-yellow-200 text-yellow-900 font-semibold px-1.5 py-0.5 rounded-full animate-pulse">
-                  Waiting
-                </span>
-              )}
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Grid Footer Legend */}
-      <div className="pt-2 text-xs text-slate-400 font-medium flex items-center justify-between flex-wrap gap-2 border-t border-slate-100">
-        <div className="flex items-center gap-6">
-          <span className="flex items-center gap-1.5">🟢 Vacant</span>
-          <span className="flex items-center gap-1.5">🟡 Pending (Click to Join)</span>
-          <span className="flex items-center gap-1.5">🔴 Full / Locked</span>
-        </div>
-        <span className="text-[11px] text-emerald-600 font-semibold flex items-center gap-1">
-          ⚡ Real-time updates enabled
-        </span>
+        {rooms.map((room) => (
+          <RoomCard
+            key={room.room_id || room.id}
+            room={room}
+            onSelect={handleRoomSelect}          // ✅ For Vacant rooms
+            onJoinPending={handleJoinPending}    // ✅ For Pending rooms
+          />
+        ))}
       </div>
 
       {/* Pair Code Modal */}
@@ -202,11 +162,15 @@ const RoomGrid = React.memo(({ rooms: initialRooms = [], floorId: propFloorId, o
             setShowPairModal(false);
             setSelectedPendingRoom(null);
           }}
-          onSubmitPairCode={handleSubmitPairCode}
+          onSuccess={() => {
+            fetchRooms();
+            if (onRefresh) onRefresh();
+            toast.success('Room joined successfully!');
+          }}
         />
       )}
     </div>
   );
-});
+};
 
 export default RoomGrid;
