@@ -9,6 +9,8 @@ const { initExpiryCronJob } = require('./jobs/expiryCleanup');
 const { initSwapExpiryJob } = require('./jobs/swapExpiry');
 const { parseAndInsertStudents } = require('./utils/csvParser');
 const { studentRateLimiter, adminRateLimiter } = require('./middleware/rateLimiter');
+
+// Import Health Routes
 const healthRoutes = require('./routes/health');
 
 const authRoutes = require('./routes/authRoutes');
@@ -38,6 +40,10 @@ app.use(cors({
 
 // Enable HTTP response compression (reduces payload by 60-80%)
 app.use(compression());
+
+// ✅ HEALTH CHECK ROUTES (Registered early before rate limiters & API routes)
+app.use('/health', healthRoutes);
+app.use('/api/health', healthRoutes);
 
 // Apply rate limiters
 app.use('/api/students', studentRateLimiter);
@@ -78,9 +84,6 @@ try {
 } catch (workerErr) {
   console.warn('[App] PDF Worker initialization warning:', workerErr.message);
 }
-
-// Healthcheck Route
-app.use('/health', healthRoutes);
 
 // Route Registrations
 app.use('/api', authRoutes);
