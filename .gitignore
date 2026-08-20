@@ -31,5 +31,8 @@ frontend/.env
 Thumbs.db
 *.log
 
-
-
+# ===== SCRIPTS / DESTRUCTIVE UTILITIES =====
+clear_db.js
+clearStudents.js
+backend/clear_db.js
+backend/clearStudents.js
