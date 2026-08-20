@@ -29,7 +29,9 @@ const Admin = sequelize.define('Admin', {
     defaultValue: DataTypes.NOW
   }
 }, {
-  tableName: 'admins'
+  tableName: 'admins',
+  timestamps: false,
+  underscored: true
 });
 
 const Student = sequelize.define('Student', {
@@ -95,7 +97,9 @@ const Student = sequelize.define('Student', {
     defaultValue: DataTypes.NOW
   }
 }, {
-  tableName: 'students'
+  tableName: 'students',
+  timestamps: false,
+  underscored: true
 });
 
 const ProgramCode = sequelize.define('ProgramCode', {
@@ -117,7 +121,8 @@ const ProgramCode = sequelize.define('ProgramCode', {
   }
 }, {
   tableName: 'program_codes',
-  timestamps: false
+  timestamps: false,
+  underscored: true
 });
 
 const Hostel = sequelize.define('Hostel', {
@@ -135,7 +140,9 @@ const Hostel = sequelize.define('Hostel', {
     defaultValue: DataTypes.NOW
   }
 }, {
-  tableName: 'hostels'
+  tableName: 'hostels',
+  timestamps: false,
+  underscored: true
 });
 
 const GlobalSetting = sequelize.define('GlobalSetting', {
@@ -164,7 +171,8 @@ const GlobalSetting = sequelize.define('GlobalSetting', {
   }
 }, {
   tableName: 'global_settings',
-  timestamps: false
+  timestamps: false,
+  underscored: true
 });
 
 const AllocationRule = sequelize.define('AllocationRule', {
@@ -219,7 +227,9 @@ const AllocationRule = sequelize.define('AllocationRule', {
     defaultValue: DataTypes.NOW
   }
 }, {
-  tableName: 'allocation_rules'
+  tableName: 'allocation_rules',
+  timestamps: false,
+  underscored: true
 });
 
 const Block = sequelize.define('Block', {
@@ -245,7 +255,9 @@ const Block = sequelize.define('Block', {
     defaultValue: DataTypes.NOW
   }
 }, {
-  tableName: 'blocks'
+  tableName: 'blocks',
+  timestamps: false,
+  underscored: true
 });
 
 const Floor = sequelize.define('Floor', {
@@ -271,7 +283,9 @@ const Floor = sequelize.define('Floor', {
     defaultValue: DataTypes.NOW
   }
 }, {
-  tableName: 'floors'
+  tableName: 'floors',
+  timestamps: false,
+  underscored: true
 });
 
 const Room = sequelize.define('Room', {
@@ -317,7 +331,9 @@ const Room = sequelize.define('Room', {
     defaultValue: DataTypes.NOW
   }
 }, {
-  tableName: 'rooms'
+  tableName: 'rooms',
+  timestamps: false,
+  underscored: true
 });
 
 const Booking = sequelize.define('Booking', {
@@ -347,7 +363,9 @@ const Booking = sequelize.define('Booking', {
     allowNull: true
   }
 }, {
-  tableName: 'bookings'
+  tableName: 'bookings',
+  timestamps: false,
+  underscored: true
 });
 
 const SwapRequest = sequelize.define('SwapRequest', {
@@ -437,7 +455,9 @@ const SwapRequest = sequelize.define('SwapRequest', {
     defaultValue: DataTypes.NOW
   }
 }, {
-  tableName: 'swap_requests'
+  tableName: 'swap_requests',
+  timestamps: false,
+  underscored: true
 });
 
 const PDFHistory = sequelize.define('PDFHistory', {
@@ -476,7 +496,9 @@ const PDFHistory = sequelize.define('PDFHistory', {
     defaultValue: DataTypes.NOW
   }
 }, {
-  tableName: 'pdf_history'
+  tableName: 'pdf_history',
+  timestamps: false,
+  underscored: true
 });
 
 // Define Associations
@@ -514,7 +536,6 @@ SwapRequest.belongsTo(Room, {
   onDelete: 'CASCADE'
 });
 
-// PDFHistory Associations
 // AllocationRule Associations
 Hostel.hasMany(AllocationRule, { foreignKey: 'hostel_id', onDelete: 'SET NULL' });
 AllocationRule.belongsTo(Hostel, { foreignKey: 'hostel_id', onDelete: 'SET NULL' });
