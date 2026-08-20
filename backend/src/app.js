@@ -178,8 +178,10 @@ try {
 const { csrfProtection } = require('./middleware/csrf');
 const errorHandler = require('./middleware/errorHandler');
 
-// Route Registrations (with CSRF Double-Submit Protection)
-app.use('/api', csrfProtection);
+// Apply CSRF Protection globally (with internal auth route bypass rules)
+app.use(csrfProtection);
+
+// Route Registrations
 app.use('/api', authRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/mfa', mfaRoutes);
