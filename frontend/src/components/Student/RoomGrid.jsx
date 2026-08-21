@@ -68,13 +68,15 @@ const RoomGrid = ({ floorId, rooms: initialRooms = [], onSelectRoom, onRefresh }
     setShowPairModal(true);
   };
 
-  // ========== INITIAL FETCH ==========
+  // ========== INITIAL FETCH & POLLING FALLBACK ==========
   useEffect(() => {
-    if (floorId && (!initialRooms || initialRooms.length === 0)) {
+    if (!floorId) return;
+    fetchRooms();
+    const interval = setInterval(() => {
       fetchRooms();
-    } else if (initialRooms && initialRooms.length > 0) {
-      calculateStats(initialRooms);
-    }
+      console.log('🔄 Polling rooms...');
+    }, 5000);
+    return () => clearInterval(interval);
   }, [floorId]);
 
   // ========== TAB VISIBILITY AUTO-REFRESH ==========
