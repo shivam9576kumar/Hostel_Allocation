@@ -57,10 +57,14 @@ const RoomCard = ({ room, onSelect, onJoinPending }) => {
     }
   };
 
+  const isPending = room.status === 'Pending_Pairing' || room.status === 'Pending';
+  const isVacant = room.status === 'Vacant';
+  const statusClassName = isPending ? 'pending-pairing' : isVacant ? 'vacant' : 'full';
+
   return (
     <div
       onClick={handleRoomClick}
-      className={`relative p-4 rounded-xl border-2 ${config.bg} ${config.border} ${config.hover} ${config.cursor} transition-all select-none`}
+      className={`room-card ${statusClassName} relative p-4 rounded-xl border-2 ${config.bg} ${config.border} ${config.hover} ${config.cursor} transition-all select-none`}
     >
       <div className={`text-lg font-bold ${config.text}`}>
         {room.room_number}
