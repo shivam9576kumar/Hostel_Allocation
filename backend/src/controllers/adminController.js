@@ -2953,7 +2953,7 @@ async function searchEligibleStudent(req, res) {
 async function deleteStudent(req, res) {
   const transaction = await sequelize.transaction();
   try {
-    const { rollNumber } = req.params;
+    const rollNumber = req.params.rollNumber || req.params.roll;
 
     // 1. Find the student
     const student = await Student.findByPk(rollNumber, { transaction });
@@ -2962,17 +2962,33 @@ async function deleteStudent(req, res) {
       return res.status(404).json({ error: 'Student not found' });
     }
 
-    // 2. If the student has a room, free it
+    let freedRoom = null;
+
+    // 2. If the student has a room, release/update it
     if (student.booked_room_id) {
       const room = await Room.findByPk(student.booked_room_id, { transaction });
       if (room) {
-        room.current_occupancy = Math.max(0, room.current_occupancy - 1);
-        if (room.current_occupancy === 0) {
+        const newOccupancy = Math.max(0, (room.current_occupancy || 1) - 1);
+        if (newOccupancy === 0) {
+          room.current_occupancy = 0;
           room.status = 'Vacant';
+          room.pairing_code = null;
+          room.code_expiry = null;
+          console.log(`🔄 Room ${room.room_number} (ID ${room.room_id}) reset to Vacant (student deleted).`);
         } else {
+          room.current_occupancy = newOccupancy;
           room.status = 'Pending_Pairing';
+          console.log(`🔄 Room ${room.room_number} (ID ${room.room_id}) occupancy updated to ${newOccupancy}.`);
         }
         await room.save({ transaction });
+
+        freedRoom = {
+          room_id: room.room_id,
+          room_number: room.room_number,
+          floor_id: room.floor_id,
+          status: room.status,
+          current_occupancy: room.current_occupancy,
+        };
       }
     }
 
@@ -2988,7 +3004,7 @@ async function deleteStudent(req, res) {
       transaction,
     });
 
-    // 5. Delete swap requests where the student is involved (as initiator or target)
+    // 5. Delete swap requests where student is involved
     await SwapRequest.destroy({
       where: {
         [Op.or]: [
@@ -2999,17 +3015,46 @@ async function deleteStudent(req, res) {
       transaction,
     });
 
-    // 6. Finally, delete the student
+    // 6. Delete the student
     await student.destroy({ transaction });
 
     await transaction.commit();
 
+    // 7. Post-Commit: Clear Redis lock/keys & Broadcast WebSocket room update
+    if (freedRoom) {
+      try {
+        const redisClient = require('../config/redis');
+        if (redisClient && typeof redisClient.del === 'function') {
+          await redisClient.del(`room:lock:${freedRoom.room_id}`);
+          await redisClient.del(`room:code:${freedRoom.room_id}`);
+          console.log(`🗑️ Redis lock/code cleared for Room ${freedRoom.room_number} (ID ${freedRoom.room_id}).`);
+        }
+      } catch (rErr) {
+        console.warn('[Redis Clear Warning]:', rErr.message);
+      }
+
+      try {
+        const broadcastRoomUpdate = req.app?.get('broadcastRoomUpdate');
+        if (broadcastRoomUpdate && freedRoom.floor_id) {
+          broadcastRoomUpdate(freedRoom.floor_id, freedRoom.room_id, freedRoom.status, freedRoom.current_occupancy);
+        }
+      } catch (wErr) {
+        console.warn('[WebSocket Broadcast Warning]:', wErr.message);
+      }
+    }
+
     return res.json({
       success: true,
-      message: `Student ${rollNumber} deleted successfully.`,
+      message: `Student ${rollNumber} deleted successfully. Room was released if allocated.`,
     });
   } catch (error) {
-    await transaction.rollback();
+    if (transaction && !transaction.finished) {
+      try {
+        await transaction.rollback();
+      } catch (rbErr) {
+        console.error('Rollback error:', rbErr.message);
+      }
+    }
     console.error('Delete student error:', error);
     return res.status(500).json({ error: error.message });
   }
