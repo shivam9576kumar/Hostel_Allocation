@@ -77,6 +77,19 @@ const RoomGrid = ({ floorId, rooms: initialRooms = [], onSelectRoom, onRefresh }
     }
   }, [floorId]);
 
+  // ========== TAB VISIBILITY AUTO-REFRESH ==========
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden && floorId) {
+        fetchRooms();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [floorId]);
+
   // ========== WEBSOCKET LISTENER ==========
   useEffect(() => {
     if (!socket) {
