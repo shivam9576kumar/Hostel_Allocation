@@ -10,6 +10,7 @@ import AdminLogin from './components/Admin/AdminLogin';
 
 // Lazy-loaded Components
 const Dashboard = lazy(() => import('./components/Student/Dashboard'));
+const PairingCodePage = lazy(() => import('./components/Student/PairingCodePage'));
 const AdminLayout = lazy(() => import('./components/Admin/AdminLayout'));
 const HostelManager = lazy(() => import('./components/Admin/HostelManager'));
 const AllocationRulesManager = lazy(() => import('./components/Admin/AllocationRulesManager'));
@@ -69,6 +70,7 @@ function App() {
             </Routes>
           ) : token && userType === 'student' ? (
             <Routes>
+              <Route path="/student/pairing/:roomId" element={<PairingCodePage />} />
               <Route path="/*" element={<Dashboard />} />
             </Routes>
           ) : showAdminPortal ? (
